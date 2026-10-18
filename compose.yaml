@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: assistant
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: assistant
+    # Наружу — чтобы запускать бэкенд локально (из IDE) с базой в Docker
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assistant -d assistant"]
+      interval: 5s
+      retries: 10
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    # Секреты (Яндекс OAuth, GigaChat, SpeechKit) — из .env в корне, см. .env.example
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://assistant:localdev@db:5432/assistant
+    volumes:
+      - ./backend/app:/srv/app
+      - ./backend/migrations:/srv/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      API_URL: http://backend:8000
+      VITE_STT_ENGINE: ${VITE_STT_ENGINE:-browser}
+      VITE_USE_MOCKS: ${VITE_USE_MOCKS:-false}
+    volumes:
+      - ./frontend/src:/app/src
+    depends_on:
+      - backend
+volumes:
+  postgres_data:
