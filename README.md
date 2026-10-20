@@ -36,3 +36,19 @@ docker compose up --build
 cd backend && pip install -r requirements-dev.txt && pytest
 cd frontend && npm run build && npm run lint
 ```
+
+## Образы и деплой
+
+GitHub Actions (`.github/workflows/docker.yml`) на каждый push в `main` прогоняет тесты и публикует образы в GitHub Container Registry:
+
+- `ghcr.io/crepythecreator/voices-assistant-backend`
+- `ghcr.io/crepythecreator/voices-assistant-frontend` (nginx со статикой, проксирует `/api` на бэкенд)
+
+Теги: `latest` и `sha-<коммит>`; для git-тега `v1.2.3` — ещё `1.2.3` и `1.2`.
+
+Запуск на сервере (рядом нужен `.env`, см. `.env.example`, плюс `POSTGRES_PASSWORD`):
+
+```
+docker compose -f compose.prod.yaml pull
+docker compose -f compose.prod.yaml up -d
+```

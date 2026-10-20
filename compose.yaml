@@ -1,3 +1,4 @@
+# Разработка: сборка из исходников, hot reload. Прод — compose.prod.yaml (готовые образы из GHCR).
 services:
   db:
     image: postgres:18
@@ -16,6 +17,7 @@ services:
       retries: 10
   backend:
     build: ./backend
+    command: sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     # Секреты (Яндекс OAuth, GigaChat, SpeechKit) — из .env в корне, см. .env.example
@@ -31,7 +33,9 @@ services:
       db:
         condition: service_healthy
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: dev
     ports:
       - "5173:5173"
     environment:

@@ -21,6 +21,14 @@ docker compose up --build
 - Тесты бэкенда (SQLite, внешние сервисы подменены): `pip install -r requirements-dev.txt && pytest` в `backend/`
 - Фронт: `npm run build`, `npm run lint` (steiger, FSD)
 
+## Docker и CI
+
+- `compose.yaml` — разработка: сборка из исходников, hot reload (бэкенд `--reload` задан в compose, фронт — стадия `dev` Dockerfile).
+- `compose.prod.yaml` — прод из готовых образов `ghcr.io/crepythecreator/voices-assistant-{backend,frontend}:${IMAGE_TAG:-latest}`; нужен `.env` с `POSTGRES_PASSWORD` (без спецсимволов — идёт в URL).
+- `backend/Dockerfile` — прод-образ: не-root, миграции при старте, healthcheck `/health`, без `--reload`.
+- `frontend/Dockerfile` — стадии `deps` → `dev` (Vite) / `build` → `prod` (nginx: статика + прокси `/api/` → `API_UPSTREAM`, `nginx.conf.template`). `VITE_*` вшиваются при сборке (build args).
+- `.github/workflows/docker.yml` — тесты бэкенда, линтер и сборка фронта, затем образы linux/amd64+arm64 в GHCR: push в `main` → `latest` + `sha-xxxx`, тег `v1.2.3` → `1.2.3`, `1.2`; в PR — только сборка. `VITE_STT_ENGINE` для образа — переменная репозитория (Settings → Variables).
+
 ## Решения
 
 - **Авторизация** — OAuth Яндекс ID (authorization code + PKCE + state в зашифрованной cookie). Сессия — httpOnly cookie, в БД только sha256. Токены Яндекса хранятся зашифрованными (Fernet от `APP_SECRET_KEY`), обновляются по refresh_token.

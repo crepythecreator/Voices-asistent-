@@ -1,0 +1,39 @@
+# Прод: готовые образы из GitHub Container Registry (собираются в .github/workflows/docker.yml).
+#   docker compose -f compose.prod.yaml pull && docker compose -f compose.prod.yaml up -d
+# Нужен .env рядом (см. .env.example) с POSTGRES_PASSWORD, APP_SECRET_KEY, FRONTEND_URL,
+# YANDEX_REDIRECT_URI=<FRONTEND_URL>/api/auth/yandex/callback, COOKIE_SECURE=true (если HTTPS) и ключами.
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: assistant
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: assistant
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assistant -d assistant"]
+      interval: 5s
+      retries: 10
+  backend:
+    image: ${IMAGE_PREFIX:-ghcr.io/crepythecreator/voices-assistant}-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://assistant:${POSTGRES_PASSWORD}@db:5432/assistant
+    depends_on:
+      db:
+        condition: service_healthy
+  frontend:
+    image: ${IMAGE_PREFIX:-ghcr.io/crepythecreator/voices-assistant}-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://backend:8000
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+volumes:
+  postgres_data:
