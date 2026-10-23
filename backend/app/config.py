@@ -29,12 +29,19 @@ class Settings(BaseSettings):
     yandex_client_secret: str | None = None
     # Должен в точности совпадать с Redirect URI в настройках приложения
     yandex_redirect_uri: str = "http://localhost:5173/api/auth/yandex/callback"
-    # Пусто — токен получит все права, отмеченные в настройках приложения
-    yandex_oauth_scope: str = ""
 
-    # --- Яндекс Календарь (CalDAV) ---
+    # --- Google (OAuth) — https://console.cloud.google.com/apis/credentials ---
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str = "http://localhost:5173/api/auth/google/callback"
+
+    # Имя отдельного календаря ассистента (Google его использует; Яндекс называет календарь по имени приложения)
+    calendar_name: str = "Voices"
     caldav_url: str = "https://caldav.yandex.ru/"
-    yandex_calendar_name: str = "Голосовой ассистент"
+
+    # Вход по паролю: не больше N неудачных попыток за окно (на почту и на IP)
+    login_max_attempts: int = 10
+    login_window_minutes: int = 15
 
     # --- Yandex Cloud: SpeechKit ---
     # API-ключ сервисного аккаунта с ролью ai.speechkit-stt.user

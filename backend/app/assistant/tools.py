@@ -48,7 +48,8 @@ FUNCTIONS: list[dict[str, Any]] = [
         "name": "list_events",
         "description": (
             "Возвращает события пользователя за период. source=assistant — события ассистента, их можно "
-            "предлагать изменить или удалить по id. source=yandex — события из других календарей Яндекса, "
+            "предлагать изменить или удалить по id. source=yandex или google — события из других календарей "
+            "пользователя (Яндекс, Google), "
             "только для понимания занятости, менять их нельзя."
         ),
         "parameters": {
@@ -71,7 +72,7 @@ FUNCTIONS: list[dict[str, Any]] = [
                         "type": "object",
                         "properties": {
                             "id": {"type": "string", "description": "Только у событий ассистента"},
-                            "source": {"type": "string", "enum": ["assistant", "yandex"]},
+                            "source": {"type": "string", "enum": ["assistant", "yandex", "google"]},
                             "title": {"type": "string"},
                             "kind": {"type": "string"},
                             "start": {"type": "string"},
@@ -172,7 +173,7 @@ def _list_events(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         for e in calendar.list_events(ctx.db, ctx.user, start, end)
     ]
     events += [
-        {"source": "yandex", "title": x.title, "start": _local(x.start, ctx.tz), "end": _local(x.end, ctx.tz)}
+        {"source": x.source, "title": x.title, "start": _local(x.start, ctx.tz), "end": _local(x.end, ctx.tz)}
         for x in calendar.external_events(ctx.db, ctx.user, start, end)
     ]
     events.sort(key=lambda e: e["start"] or "")

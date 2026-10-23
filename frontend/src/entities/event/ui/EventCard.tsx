@@ -12,7 +12,7 @@ const KIND: Record<EventKind, { label: string; icon: typeof Bell }> = {
 };
 
 export function EventCard({ event: e }: { event: CalendarEvent }) {
-  const external = e.source === "yandex";
+  const external = e.source !== "assistant";
   const { label, icon: Icon } = KIND[e.kind];
   const syncFailed = e.syncStatus === "error";
 
@@ -25,15 +25,15 @@ export function EventCard({ event: e }: { event: CalendarEvent }) {
           {timeFormat.format(new Date(e.start))}
           {e.end && ` – ${timeFormat.format(new Date(e.end))}`}
           {syncFailed && (
-            <span className="flex items-center gap-1 text-destructive" title="Не удалось выгрузить в Яндекс Календарь">
-              · <CloudOff className="size-3" /> не в Яндексе
+            <span className="flex items-center gap-1 text-destructive" title="Не удалось выгрузить в подключённый календарь — повторите в настройках">
+              · <CloudOff className="size-3" /> не выгружено
             </span>
           )}
         </div>
       </div>
       {external ? (
-        <Badge variant="outline" title="Событие из Яндекс Календаря, только для просмотра">
-          {e.calendarName ?? "Яндекс"}
+        <Badge variant="outline" title="Событие из вашего календаря, только для просмотра">
+          {e.calendarName ?? (e.source === "google" ? "Google" : "Яндекс")}
         </Badge>
       ) : (
         <Badge variant="secondary">{label}</Badge>

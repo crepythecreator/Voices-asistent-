@@ -32,7 +32,7 @@ def propose_create(llm_use, client, title="Позвонить врачу"):
     return chat(client, f"Напомни завтра в 9 {title.lower()}")
 
 
-def test_ai_only_proposes_and_does_not_touch_calendar(user_client, use_llm, fake_calendar):
+def test_ai_only_proposes_and_does_not_touch_calendar(user_client, use_llm, calendars):
     body = propose_create(use_llm, user_client)
 
     actions = body["message"]["actions"]
@@ -41,27 +41,25 @@ def test_ai_only_proposes_and_does_not_touch_calendar(user_client, use_llm, fake
     assert "Позвонить врачу" in actions[0]["summary"]
     # Ничего не создано ни у нас, ни в Яндексе
     assert events_count() == 0
-    assert fake_calendar.saved == {}
+    assert calendars["yandex"].saved == {}
 
 
-def test_confirm_applies_and_syncs_to_yandex(user_client, use_llm, fake_calendar):
+def test_confirm_applies_and_syncs_to_yandex(user_client, use_llm, calendars):
     action_id = propose_create(use_llm, user_client)["message"]["actions"][0]["id"]
 
     r = user_client.post(f"/actions/{action_id}/confirm")
     assert r.status_code == 200
     assert r.json()["status"] == "applied"
     assert events_count() == 1
-    assert len(fake_calendar.saved) == 1
-    ical = next(iter(fake_calendar.saved.values()))
-    assert "SUMMARY:Позвонить врачу" in ical
-    assert "BEGIN:VALARM" in ical  # напоминание со звонком
+    assert list(calendars["yandex"].saved.values()) == ["Позвонить врачу"]
+    assert calendars["google"].saved == {}  # Google не подключён
 
     # Повторное подтверждение не создаёт дубль
     assert user_client.post(f"/actions/{action_id}/confirm").status_code == 409
     assert events_count() == 1
 
 
-def test_reject_leaves_calendar_untouched(user_client, use_llm, fake_calendar):
+def test_reject_leaves_calendar_untouched(user_client, use_llm, calendars):
     action_id = propose_create(use_llm, user_client)["message"]["actions"][0]["id"]
     r = user_client.post(f"/actions/{action_id}/reject")
     assert r.json()["status"] == "rejected"
@@ -69,7 +67,7 @@ def test_reject_leaves_calendar_untouched(user_client, use_llm, fake_calendar):
     assert events_count() == 0
 
 
-def test_expired_action_cannot_be_confirmed(user_client, use_llm, fake_calendar):
+def test_expired_action_cannot_be_confirmed(user_client, use_llm, calendars):
     action_id = propose_create(use_llm, user_client)["message"]["actions"][0]["id"]
     with SessionLocal() as db:
         action = db.scalar(select(ProposedAction))
@@ -79,7 +77,7 @@ def test_expired_action_cannot_be_confirmed(user_client, use_llm, fake_calendar)
     assert events_count() == 0
 
 
-def test_invalid_arguments_are_returned_to_model(user_client, use_llm, fake_calendar):
+def test_invalid_arguments_are_returned_to_model(user_client, use_llm, calendars):
     llm = use_llm(
         ScriptedLLM(
             call(
@@ -99,7 +97,7 @@ def test_invalid_arguments_are_returned_to_model(user_client, use_llm, fake_cale
     assert "позже начала" in function_result["error"]
 
 
-def test_hallucinated_event_id_is_rejected(user_client, use_llm, fake_calendar):
+def test_hallucinated_event_id_is_rejected(user_client, use_llm, calendars):
     llm = use_llm(
         ScriptedLLM(
             call("propose_delete_event", event_id="00000000-0000-0000-0000-000000000000"),
@@ -111,7 +109,7 @@ def test_hallucinated_event_id_is_rejected(user_client, use_llm, fake_calendar):
     assert json.loads(llm.requests[1][-1]["content"])["status"] == "error"
 
 
-def test_cannot_touch_other_users_events(client, use_llm, fake_calendar, monkeypatch):
+def test_cannot_touch_other_users_events(client, use_llm, calendars, monkeypatch):
     # Первый пользователь создаёт событие
     login(client, monkeypatch, yandex_id="1")
     action_id = propose_create(use_llm, client)["message"]["actions"][0]["id"]
@@ -128,7 +126,7 @@ def test_cannot_touch_other_users_events(client, use_llm, fake_calendar, monkeyp
     assert events_count() == 1
 
 
-def test_update_and_delete_flow(user_client, use_llm, fake_calendar):
+def test_update_and_delete_flow(user_client, use_llm, calendars):
     action_id = propose_create(use_llm, user_client)["message"]["actions"][0]["id"]
     user_client.post(f"/actions/{action_id}/confirm")
     with SessionLocal() as db:
@@ -148,15 +146,15 @@ def test_update_and_delete_flow(user_client, use_llm, fake_calendar):
     assert events_count() == 1
     user_client.post(f"/actions/{delete['id']}/confirm")
     assert events_count() == 0
-    assert fake_calendar.deleted == [event.ical_uid]
+    assert calendars["yandex"].deleted == [f"yandex-{event.id}"]
 
 
-def test_list_events_includes_yandex_busy_as_readonly(user_client, use_llm, fake_calendar):
+def test_list_events_includes_yandex_busy_as_readonly(user_client, use_llm, calendars):
     from app.calendar.ical import ExternalEvent
     from datetime import timezone
 
     start = datetime.now(timezone.utc) + timedelta(days=1)
-    fake_calendar.external = [ExternalEvent("x1", "Работа", start, start + timedelta(hours=1), "Рабочий")]
+    calendars["yandex"].external = [ExternalEvent("x1", "Работа", start, start + timedelta(hours=1), "Рабочий")]
     r = user_client.get(
         "/events",
         params={"from": (start - timedelta(days=1)).isoformat(), "to": (start + timedelta(days=1)).isoformat()},
@@ -166,7 +164,7 @@ def test_list_events_includes_yandex_busy_as_readonly(user_client, use_llm, fake
     assert event["source"] == "yandex" and event["readonly"] is True
 
 
-def test_history_contains_actions(user_client, use_llm, fake_calendar):
+def test_history_contains_actions(user_client, use_llm, calendars):
     propose_create(use_llm, user_client)
     history = user_client.get("/chat/history").json()
     assert [m["role"] for m in history] == ["user", "assistant"]
@@ -176,3 +174,52 @@ def test_history_contains_actions(user_client, use_llm, fake_calendar):
 def test_without_llm_configured(user_client):
     body = chat(user_client, "Привет")
     assert "GIGACHAT_CREDENTIALS" in body["reply"]
+
+
+def test_sync_to_both_calendars_and_toggle(user_client, use_llm, calendars, monkeypatch):
+    from .conftest import oauth
+
+    # Подключаем ещё и Google — события ассистента уходят в оба календаря
+    oauth(user_client, monkeypatch, "google", "connect", "/settings", user_id="g1")
+    action_id = propose_create(use_llm, user_client)["message"]["actions"][0]["id"]
+    user_client.post(f"/actions/{action_id}/confirm")
+    assert len(calendars["yandex"].saved) == 1 and len(calendars["google"].saved) == 1
+
+    # Синхронизация с Google выключена — новые события туда не идут
+    user_client.patch("/account/connections/google", json={"syncEnabled": False})
+    action_id = propose_create(use_llm, user_client, title="Купить хлеб")["message"]["actions"][0]["id"]
+    user_client.post(f"/actions/{action_id}/confirm")
+    assert len(calendars["yandex"].saved) == 2 and len(calendars["google"].saved) == 1
+
+
+def test_sync_error_is_reported_and_retried(user_client, use_llm, calendars):
+    calendars["yandex"].fail = True
+    action_id = propose_create(use_llm, user_client)["message"]["actions"][0]["id"]
+    assert user_client.post(f"/actions/{action_id}/confirm").json()["status"] == "applied"  # событие у нас создано
+
+    with SessionLocal() as db:
+        event = db.scalar(select(Event))
+    start = event.start.replace(tzinfo=None)
+    params = {"from": (start - timedelta(days=1)).isoformat() + "Z", "to": (start + timedelta(days=1)).isoformat() + "Z"}
+    assert user_client.get("/events", params=params).json()[0]["syncStatus"] == "error"
+
+    calendars["yandex"].fail = False
+    assert user_client.post("/calendar/sync").status_code == 204
+    assert user_client.get("/events", params=params).json()[0]["syncStatus"] == "synced"
+
+
+def test_external_events_from_google(user_client, use_llm, calendars, monkeypatch):
+    from datetime import timezone
+
+    from app.calendar.ical import ExternalEvent
+
+    from .conftest import oauth
+
+    oauth(user_client, monkeypatch, "google", "connect", "/settings", user_id="g1")
+    start = datetime.now(timezone.utc) + timedelta(days=1)
+    calendars["google"].external = [ExternalEvent("g1", "Стоматолог", start, None, "Личный")]
+    r = user_client.get(
+        "/events", params={"from": (start - timedelta(hours=1)).isoformat(), "to": (start + timedelta(hours=1)).isoformat()}
+    )
+    [event] = r.json()
+    assert event["source"] == "google" and event["readonly"] is True

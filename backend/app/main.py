@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import stt
+from .account.router import router as account_router
 from .assistant.router import router as assistant_router
 from .auth.router import router as auth_router
 from .calendar.router import router as calendar_router
@@ -24,6 +25,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(account_router)
 app.include_router(assistant_router)
 app.include_router(calendar_router)
 app.include_router(stt.router)

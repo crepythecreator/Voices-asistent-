@@ -1,6 +1,6 @@
 # Voice Assistant
 
-Голосовой и текстовый ассистент для задач, напоминаний и встреч. Многопользовательский, вход через Яндекс ID, события синхронизируются с Яндекс Календарём.
+Голосовой и текстовый ассистент для задач, напоминаний и встреч. Многопользовательский: вход по почте и паролю или через Яндекс ID / Google; события синхронизируются с Яндекс и Google Календарём.
 
 ## Стек
 
@@ -31,11 +31,15 @@ docker compose up --build
 
 ## Решения
 
-- **Авторизация** — OAuth Яндекс ID (authorization code + PKCE + state в зашифрованной cookie). Сессия — httpOnly cookie, в БД только sha256. Токены Яндекса хранятся зашифрованными (Fernet от `APP_SECRET_KEY`), обновляются по refresh_token.
+- **Авторизация** — почта+пароль (argon2, без подтверждения почты и сброса пароля — писем нет; лимит 10 неудачных входов за 15 мин на почту и на IP) и OAuth Яндекс/Google (authorization code + PKCE + state в зашифрованной cookie, один callback `/auth/{provider}/callback` для входа и подключения). Сессия — httpOnly cookie, в БД только sha256. Токены провайдеров хранятся зашифрованными (Fernet от `APP_SECRET_KEY`), обновляются по refresh_token; если ключ сменили — токен считается недоступным.
+  - **Вход** через провайдера просит только профиль (Яндекс `login:info login:email`, Google `openid email profile`) и не трогает токены уже подключённого аккаунта (иначе потеряли бы доступ к календарю). **Подключение** из настроек (`/auth/{provider}/connect`) просит календарь: Яндекс `calendar:all`; Google `calendar.app.created` (свой календарь) + `calendar.calendarlist.readonly` + `calendar.events.readonly` (занятость), `access_type=offline`, `prompt=consent`.
+  - **Связка по почте**: вход через провайдера с подтверждённой почтой попадает в аккаунт с этой почтой; если почта аккаунта не была подтверждена (регистрация по паролю), пароль сбрасывается и сессии завершаются — защита от захвата чужой почты. Неподтверждённая почта провайдера не связывается. На пользователя — не больше одного аккаунта каждого провайдера; отключить последний способ входа нельзя.
 - **ИИ не меняет календарь сам.** GigaChat получает функции: `list_events` (чтение) и `propose_create/update/delete_event`. «Изменяющие» функции только валидируют аргументы и создают `ProposedAction(status=pending)`; ошибки валидации возвращаются модели. Календарь меняется только в `POST /actions/{id}/confirm` по нажатию пользователя — с повторной проверкой (не просрочено (24 ч), событие существует и принадлежит пользователю, не применено дважды). Это же защищает от prompt injection через названия событий.
-- **Яндекс Календарь** — публичного REST API нет, работаем по CalDAV (`caldav.yandex.ru`, логин — email, пароль — OAuth-токен). Наши события пишем в отдельный календарь `YANDEX_CALENDAR_NAME` (MKCALENDAR; если не дали создать — в основной). Остальные календари только читаем — как занятость (`source=yandex`, `readonly`). Источник правды — наша БД; ошибка выгрузки помечает событие `sync_status=error`, повтор — `POST /calendar/sync`.
+- **Календари** — события ассистента (источник правды — наша БД) выгружаются в отдельный календарь каждого подключённого аккаунта с доступом к календарю и включённым `sync_enabled` (переключатель в настройках); статус по каждому — `event_syncs`, повтор — `POST /calendar/sync`. Занятость читается из остальных календарей всех аккаунтов с доступом (`source=yandex|google`, `readonly`). Отключение аккаунта не удаляет уже выгруженные события у провайдера.
+- **Яндекс Календарь** — публичного REST API нет, работаем по CalDAV (`caldav.yandex.ru`, логин — email, пароль — OAuth-токен).
+- **Google Calendar** — REST API v3 (`calendar/google_calendar.py`): календарь `CALENDAR_NAME` создаётся через `POST /calendars`, события — с `extendedProperties.private.voicesEventId`.
   - Нужное право OAuth — `calendar:all` (с `calendar:events.write` CalDAV отвечает 401).
-  - Яндекс игнорирует адрес и имя из MKCALENDAR: календарь получает адрес `events-<id>` и имя OAuth-приложения («Voices»), переименование не применяется. Поэтому новый календарь ищем сравнением списков до/после и храним его URL в `calendar_links`. PUT по несуществующему адресу календаря даёт 409.
+  - Яндекс игнорирует адрес и имя из MKCALENDAR: календарь получает адрес `events-<id>` и имя OAuth-приложения («Voices»), переименование не применяется. Поэтому новый календарь ищем сравнением списков до/после и храним его URL в `oauth_accounts.calendar_id`. PUT по несуществующему адресу календаря даёт 409.
   - Время в iCal пишем в UTC (`as_utc` переводит aware-даты из psycopg в UTC), иначе уходит `TZID` без `VTIMEZONE`.
 - **Даты в промпте** — модели плохо считают дни недели, поэтому в системный промпт подставляется таблица ближайших 14 дат с днями недели.
 - **Время** хранится в UTC; модель работает в часовом поясе пользователя (приходит с фронта в `/chat`).
@@ -44,19 +48,22 @@ docker compose up --build
 
 ```
 main.py, config.py, db.py, models.py, security.py (шифрование, сессии, current_user), stt.py (SpeechKit)
-auth/       yandex.py (OAuth-клиент, профиль, refresh), router.py (/auth/*)
-calendar/   ical.py, yandex_caldav.py (CalDAV-клиент), service.py (синхронизация, занятость), router.py
+auth/       providers.py (Яндекс/Google OAuth), accounts.py (вход/связка/подключение, токены), passwords.py, router.py (/auth/*)
+account/    router.py (/account/*: подключения, синхронизация, пароль)
+calendar/   backend.py (интерфейс), yandex_caldav.py, google_calendar.py, ical.py, service.py (выгрузка во все включённые календари, занятость), router.py
 assistant/  llm.py (интерфейс), gigachat.py (REST-клиент), tools.py (функции модели), actions.py (предложения,
             валидация, применение), agent.py (промпт и цикл), router.py (/chat, /actions)
 ```
 
-Таблицы: `users`, `yandex_tokens`, `sessions`, `calendar_links`, `events`, `chat_messages`, `proposed_actions`.
+Таблицы: `users` (email, password_hash, email_verified), `oauth_accounts` (провайдер, токены, доступ к календарю, sync_enabled, calendar_id), `sessions`, `events`, `event_syncs` (копия события у провайдера), `chat_messages`, `proposed_actions`. Миграция 0002 перенесла старые `yandex_tokens`/`calendar_links`; её откат не поддерживается.
 
 API:
-- `GET /auth/yandex/login?next=` → oauth.yandex.ru; `GET /auth/yandex/callback` → cookie + редирект на `FRONTEND_URL + next`, ошибка → `/login?error=<код>`; `GET /auth/me`; `POST /auth/logout`
+- `POST /auth/register` `{email, password, name}`, `POST /auth/login` `{email, password}`, `GET /auth/me` → `{id, name, email, avatarUrl, hasPassword}`, `POST /auth/logout`, `GET /auth/providers` → все провайдеры с `configured` (ненастроенный показывается неактивной кнопкой)
+- `GET /auth/{yandex|google}/login?next=` и `/connect?next=` → провайдер; `GET /auth/{provider}/callback` → cookie + редирект на `FRONTEND_URL + next`; ошибка → `/login?error=` (вход) или `/settings?error=` (подключение): `access_denied`, `invalid_state`, `already_linked`, `other_account_connected`, `provider_error`; успех подключения → `/settings?connected=<provider>`
+- `GET /account/connections`, `PATCH /account/connections/{provider}` `{syncEnabled}`, `DELETE /account/connections/{provider}`, `POST /account/password` `{currentPassword?, newPassword}` (завершает остальные сессии)
 - `POST /chat` `{message, source, timezone}` → `{reply, message: {id, role, text, createdAt, actions: [...]}}`; `GET /chat/history`
 - `POST /actions/{id}/confirm`, `POST /actions/{id}/reject` → `{id, type, summary, status, error, eventId, expiresAt}`
-- `GET /events?from&to` → наши события + занятость из Яндекса; `GET /calendar/status`; `POST /calendar/sync`
+- `GET /events?from&to` → наши события (`syncStatus`: synced/pending/error) + занятость из Яндекса и Google; `POST /calendar/sync`
 - `POST /stt?sample_rate=16000&lang=ru-RU`, тело — PCM s16le моно → `{text}`
 
 ## Фронтенд
@@ -69,16 +76,17 @@ API:
 ```
 src/
   app/        main.tsx, App.tsx (AuthProvider + RouterProvider), routes/ (router, guards), styles/
-  pages/      assistant (шапка, чат, календарь), login (вход/регистрация через Яндекс ID)
-  widgets/    header, chat (ChatPanel, Composer, MessageList), calendar-panel (+ model/useMonthEvents)
+  pages/      assistant (шапка, чат, календарь), login, register, settings (профиль, аккаунты и календари, пароль)
+  widgets/    header, auth-layout (раскладка входа/регистрации), chat (ChatPanel, Composer, MessageList), calendar-panel (+ model/useMonthEvents)
   features/   send-message (useChat, /chat, история), confirm-action (Подтвердить/Отклонить),
-              voice-input (распознавание речи), auth (AuthProvider, UserMenu, YandexLoginButton), toggle-theme
-  entities/   message, action (ProposedAction, ActionCard), event (getEvents, EventCard, invalidateEvents), user
-  shared/     ui (shadcn), api (fetch-клиент, ApiError, обработчик 401), config (USE_MOCKS, STT_ENGINE, routes), lib
+              voice-input (распознавание речи), auth (AuthProvider, LoginForm, RegisterForm, OAuthButtons, UserMenu),
+              manage-connections (карточки Яндекс/Google в настройках), change-password, toggle-theme
+  entities/   connection, message, action (ProposedAction, ActionCard), event (getEvents, EventCard, invalidateEvents), user
+  shared/     ui (shadcn + input, label, switch, form-error, provider-icon), api (fetch-клиент, ApiError, обработчик 401), config (USE_MOCKS, STT_ENGINE, routes, MIN_PASSWORD_LENGTH), lib (cn, errorMessage, форматирование)
 ```
 
 - Распознавание речи: `VITE_STT_ENGINE=browser` (Web Speech API; в Яндекс Браузере/Brave/Arc даёт `network`) или `server` (PCM 16 кГц → `POST /stt`).
-- Роутинг: `/login` (`GuestRoute`), `/` (`ProtectedRoute`, гостя → `/login?next=…`). Любой 401 от API сбрасывает пользователя.
+- Роутинг: `/login`, `/register` (`GuestRoute`), `/`, `/settings` (`ProtectedRoute`, гостя → `/login?next=…`). Любой 401 от API сбрасывает пользователя.
 - После подтверждения действия `invalidateEvents()` перезагружает календарь.
 - `VITE_USE_MOCKS=true` — работа без бэкенда (по умолчанию выключено; Vite читает `.env` из корня, `envDir`) (тестовый пользователь, фиктивные ответы и события).
 
@@ -89,5 +97,6 @@ src/
 ## Открытые вопросы
 
 - Доставка напоминаний (сейчас — только VALARM в Яндекс Календаре)
-- Точные названия прав Календаря в OAuth-приложении не проверены на живом приложении — при пустом `YANDEX_OAUTH_SCOPE` запрашиваются все права приложения
+- Подтверждение почты и сброс пароля письмом (нужен SMTP)
+- Google OAuth в режиме Testing: войти могут только Test users; для публичного запуска нужна верификация приложения (calendar.* — чувствительные права)
 - Двусторонняя синхронизация (правки в Яндексе пока не возвращаются к нам)

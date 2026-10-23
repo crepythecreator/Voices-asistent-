@@ -1,8 +1,9 @@
 # Voice Assistant
 
-Голосовой и текстовый ассистент для задач, напоминаний и встреч. Вход через Яндекс ID, ИИ — GigaChat,
-события синхронизируются с отдельным календарём в Яндекс Календаре. ИИ только предлагает изменения —
-применяются они после подтверждения пользователем.
+Голосовой и текстовый ассистент для задач, напоминаний и встреч. Вход по почте и паролю или через
+Яндекс ID и Google, ИИ — GigaChat. В настройках можно подключить Яндекс и Google Календарь: события
+ассистента попадут в отдельный календарь, а занятость будет учитываться. ИИ только предлагает
+изменения — применяются они после подтверждения пользователем.
 
 ```
 backend/    FastAPI + SQLAlchemy + Alembic + PostgreSQL
@@ -13,13 +14,21 @@ compose.yaml
 ## Настройка
 
 1. `cp .env.example .env` и сгенерируйте `APP_SECRET_KEY`.
-2. **Яндекс ID**: создайте приложение на https://oauth.yandex.ru/client/new
+2. **Яндекс ID** (необязательно): создайте приложение на https://oauth.yandex.ru/client/new
    - платформа «Веб-сервисы», Redirect URI: `http://localhost:5173/api/auth/yandex/callback`;
-   - права: доступ к логину, имени, почте и аватару, а также к Календарю (CalDAV);
+   - права: «Доступ к логину, имени», «Доступ к адресу почты» и Календарь — полный доступ (`calendar:all`);
    - `ClientID` и `Client secret` → `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`.
-3. **GigaChat**: в https://developers.sber.ru/studio создайте проект GigaChat API и скопируйте «Ключ авторизации»
+3. **Google** (необязательно): в https://console.cloud.google.com
+   - APIs & Services → Library → включите **Google Calendar API**;
+   - OAuth consent screen → External, добавьте свой Google-аккаунт в **Test users**;
+   - Credentials → Create credentials → OAuth client ID → Web application,
+     Authorized redirect URI: `http://localhost:5173/api/auth/google/callback`;
+   - Client ID и Client secret → `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+
+   Провайдер без ключей просто не показывается на странице входа — регистрация по почте работает всегда.
+4. **GigaChat**: в https://developers.sber.ru/studio создайте проект GigaChat API и скопируйте «Ключ авторизации»
    в `GIGACHAT_CREDENTIALS`.
-4. (Необязательно) **SpeechKit** для серверного распознавания речи: `VITE_STT_ENGINE=server`, `YANDEX_API_KEY`.
+5. (Необязательно) **SpeechKit** для серверного распознавания речи: `VITE_STT_ENGINE=server`, `YANDEX_API_KEY`.
 
 ## Запуск
 

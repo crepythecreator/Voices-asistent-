@@ -3,7 +3,6 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import as_utc, get_db
@@ -23,14 +22,15 @@ class EventOut(BaseModel):
     start: datetime
     end: datetime | None
     description: str | None = None
-    # assistant — наше событие; yandex — из других календарей Яндекса, только чтение
-    source: Literal["assistant", "yandex"] = "assistant"
+    # assistant — событие ассистента; yandex/google — из других календарей, только чтение
+    source: Literal["assistant", "yandex", "google"] = "assistant"
     readonly: bool = False
+    # synced | pending | error; None — нет календарей с включённой синхронизацией
     syncStatus: str | None = None
     calendarName: str | None = None
 
 
-def event_out(e: Event) -> EventOut:
+def event_out(e: Event, user: User) -> EventOut:
     return EventOut(
         id=str(e.id),
         title=e.title,
@@ -38,7 +38,7 @@ def event_out(e: Event) -> EventOut:
         start=as_utc(e.start),
         end=as_utc(e.end) if e.end else None,
         description=e.description,
-        syncStatus=e.sync_status,
+        syncStatus=service.sync_status(e, user),
     )
 
 
@@ -50,7 +50,7 @@ def _aware(dt: datetime) -> datetime:
 def get_events(
     start: datetime = Query(alias="from"),
     end: datetime = Query(alias="to"),
-    include_yandex: bool = True,
+    include_external: bool = True,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[EventOut]:
@@ -58,17 +58,17 @@ def get_events(
     if end <= start or (end - start).days > MAX_RANGE_DAYS:
         raise HTTPException(422, f"Некорректный диапазон (не больше {MAX_RANGE_DAYS} дней)")
 
-    out = [event_out(e) for e in service.list_events(db, user, start, end)]
-    if include_yandex:
+    out = [event_out(e, user) for e in service.list_events(db, user, start, end)]
+    if include_external:
         for x in service.external_events(db, user, start, end):
             out.append(
                 EventOut(
-                    id=f"yandex:{x.uid}:{x.start.isoformat()}",
+                    id=f"{x.source}:{x.uid}:{x.start.isoformat()}",
                     title=x.title,
                     kind="meeting",
                     start=x.start,
                     end=x.end,
-                    source="yandex",
+                    source=x.source,  # type: ignore[arg-type]
                     readonly=True,
                     calendarName=x.calendar_name,
                 )
@@ -77,34 +77,11 @@ def get_events(
     return out
 
 
-class CalendarStatusOut(BaseModel):
-    connected: bool
-    dedicated: bool
-    status: str
-    error: str | None
-    unsynced: int
-
-
-@router.get("/calendar/status", response_model=CalendarStatusOut)
-def calendar_status(user: User = Depends(current_user), db: Session = Depends(get_db)) -> CalendarStatusOut:
-    link = user.calendar
-    unsynced = db.scalar(
-        select(func.count()).select_from(Event).where(Event.user_id == user.id, Event.sync_status != "synced")
-    )
-    return CalendarStatusOut(
-        connected=bool(link and link.status == "ok"),
-        dedicated=bool(link and link.dedicated),
-        status=link.status if link else "pending",
-        error=link.error if link else None,
-        unsynced=unsynced or 0,
-    )
-
-
-@router.post("/calendar/sync", response_model=CalendarStatusOut)
-def calendar_sync(user: User = Depends(current_user), db: Session = Depends(get_db)) -> CalendarStatusOut:
-    """Повторная выгрузка событий, которые не удалось отправить в Яндекс."""
-    if user.calendar and user.calendar.status == "error":
-        user.calendar.status = "pending"  # дать ensure_calendar попробовать заново
+@router.post("/calendar/sync", status_code=204)
+def calendar_sync(user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+    """Повторная выгрузка событий, которые не удалось отправить в календари."""
+    for account in service.sync_accounts(user):
+        if account.calendar_status == "error":
+            account.calendar_status = "pending"  # дать ещё одну попытку
     service.sync_pending(db, user)
     service.invalidate_busy_cache(user.id)
-    return calendar_status(user, db)

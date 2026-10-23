@@ -9,3 +9,5 @@ certifi
 cryptography
 caldav==1.*
 icalendar
+argon2-cffi
+email-validator

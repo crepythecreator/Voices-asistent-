@@ -1,6 +1,8 @@
 export const routes = {
   home: "/",
   login: "/login",
+  register: "/register",
+  settings: "/settings",
 } as const;
 
 /** Пускаем только относительные пути внутри приложения — защита от open redirect. */

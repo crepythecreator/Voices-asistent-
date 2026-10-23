@@ -51,6 +51,8 @@ class ExternalEvent:
     start: datetime
     end: datetime | None
     calendar_name: str
+    # yandex | google — откуда событие
+    source: str = "yandex"
 
 
 def _as_datetime(value: date | datetime) -> datetime:

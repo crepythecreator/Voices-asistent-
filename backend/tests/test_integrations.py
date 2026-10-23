@@ -62,3 +62,56 @@ def test_parse_external_ical():
     assert [e.title for e in events] == ["Планёрка", "Отпуск"]
     assert events[0].start.hour == 7 and events[0].start.tzinfo is not None
     assert events[1].start.tzinfo is not None  # событие на весь день
+
+
+def test_google_calendar_client():
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app.calendar.google_calendar import GoogleCalendarClient
+    from app.models import Event
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        path = request.url.path
+        if request.method == "GET" and path.endswith("/calendars/old-id"):
+            return httpx.Response(404, json={"error": {"message": "Not Found"}})
+        if request.method == "POST" and path.endswith("/calendars"):
+            return httpx.Response(200, json={"id": "voices@group.calendar.google.com"})
+        if request.method == "POST" and path.endswith("/events"):
+            return httpx.Response(200, json={"id": "ev1"})
+        if path.endswith("/calendarList"):
+            return httpx.Response(200, json={"items": [{"id": "voices@group.calendar.google.com"}, {"id": "primary-id", "summary": "Личный"}]})
+        if path.endswith("/calendars/primary-id/events"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": "a", "summary": "Стоматолог", "start": {"dateTime": "2026-10-24T10:00:00+03:00"}, "end": {"dateTime": "2026-10-24T11:00:00+03:00"}},
+                        {"id": "b", "summary": "Отпуск", "start": {"date": "2026-10-25"}},
+                        {"id": "c", "status": "cancelled", "start": {"date": "2026-10-26"}},
+                    ]
+                },
+            )
+        return httpx.Response(500)
+
+    client = GoogleCalendarClient("tok", "Europe/Moscow")
+    client._http = httpx.Client(base_url="https://www.googleapis.com/calendar/v3", transport=httpx.MockTransport(handler))
+
+    # Сохранённый календарь удалили — создаём новый
+    cal_id = client.ensure_calendar("Voices", "old-id")
+    assert cal_id == "voices@group.calendar.google.com"
+    assert json.loads(seen[-1].content) == {"summary": "Voices", "timeZone": "Europe/Moscow"}
+
+    start = datetime(2026, 10, 24, 9, 0, tzinfo=timezone.utc)
+    event = Event(id=uuid.uuid4(), title="Позвонить", kind="reminder", start=start, end=None, ical_uid="x")
+    assert client.upsert_event(cal_id, event, None) == "ev1"
+    body = json.loads(seen[-1].content)
+    assert body["summary"] == "Позвонить" and body["start"]["dateTime"].startswith("2026-10-24T09:00")
+    assert body["reminders"]["overrides"] == [{"method": "popup", "minutes": 0}]
+
+    found = client.external_events(start, start + timedelta(days=3), exclude_id=cal_id)
+    assert [e.title for e in found] == ["Стоматолог", "Отпуск"]  # свой календарь и отменённые пропущены
+    assert found[0].start.hour == 7 and found[0].calendar_name == "Личный"

@@ -68,13 +68,30 @@ def destroy_session(db: Session, token: str | None, response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE, path="/")
 
 
+def destroy_other_sessions(db: Session, user: User, keep_token: str | None) -> None:
+    """Завершает все сессии пользователя, кроме текущей (после смены пароля)."""
+    query = delete(AuthSession).where(AuthSession.user_id == user.id)
+    if keep_token:
+        query = query.where(AuthSession.id != _hash(keep_token))
+    db.execute(query)
+
+
+def session_user(db: Session, token: str | None) -> User | None:
+    if not token:
+        return None
+    row = db.scalar(select(AuthSession).where(AuthSession.id == _hash(token)))
+    if not row or as_utc(row.expires_at) <= utcnow():
+        return None
+    return row.user
+
+
 def current_user(
     session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
     db: Session = Depends(get_db),
 ) -> User:
     if not session:
         raise HTTPException(401, "Требуется вход")
-    row = db.scalar(select(AuthSession).where(AuthSession.id == _hash(session)))
-    if not row or as_utc(row.expires_at) <= utcnow():
+    user = session_user(db, session)
+    if not user:
         raise HTTPException(401, "Сессия истекла")
-    return row.user
+    return user

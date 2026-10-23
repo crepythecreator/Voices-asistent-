@@ -9,8 +9,8 @@ export interface CalendarEvent {
   start: string; // ISO
   end?: string | null; // ISO
   description?: string | null;
-  /** assistant — событие ассистента; yandex — из других календарей Яндекса (только чтение). */
-  source: "assistant" | "yandex";
+  /** assistant — событие ассистента; yandex/google — из других календарей пользователя (только чтение). */
+  source: "assistant" | "yandex" | "google";
   readonly: boolean;
   syncStatus?: EventSyncStatus | null;
   calendarName?: string | null;
