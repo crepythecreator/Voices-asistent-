@@ -10,14 +10,14 @@ const ERROR_MESSAGES: Record<string, string> = {
   // Chrome отправляет звук на серверы Google. Ошибка значит, что они недоступны
   // или браузер собран без ключей Google (Яндекс Браузер, Brave, Arc, Chromium).
   network:
-    "Браузер не может связаться со своим сервисом распознавания. Попробуйте Google Chrome или включите серверное распознавание.",
+    "Браузер не может связаться со своим сервисом распознавания речи. Попробуйте Google Chrome или включите серверное распознавание (VITE_STT_ENGINE=auto).",
 };
 
 /**
  * Движок на браузерном Web Speech API.
  * Надёжно работает в Google Chrome и Safari; в Firefox API нет.
  */
-export function useBrowserSpeech({ lang = "ru-RU", onFinal }: SpeechOptions = {}): SpeechRecognitionApi {
+export function useBrowserSpeech({ lang = "ru-RU", onFinal, onNetworkError }: SpeechOptions = {}): SpeechRecognitionApi {
   const Ctor = typeof window !== "undefined" ? (window.SpeechRecognition ?? window.webkitSpeechRecognition) : undefined;
   const supported = Boolean(Ctor);
 
@@ -29,6 +29,8 @@ export function useBrowserSpeech({ lang = "ru-RU", onFinal }: SpeechOptions = {}
   const finalRef = useRef("");
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
+  const onNetworkErrorRef = useRef(onNetworkError);
+  onNetworkErrorRef.current = onNetworkError;
 
   const start = useCallback(() => {
     if (!Ctor || recognitionRef.current) return;
@@ -53,6 +55,7 @@ export function useBrowserSpeech({ lang = "ru-RU", onFinal }: SpeechOptions = {}
     };
     rec.onerror = (e) => {
       if (e.error === "aborted") return;
+      if (e.error === "network" && onNetworkErrorRef.current?.()) return;
       setError(ERROR_MESSAGES[e.error] ?? `Ошибка распознавания: ${e.error}`);
     };
     rec.onend = () => {

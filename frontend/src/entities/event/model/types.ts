@@ -14,4 +14,6 @@ export interface CalendarEvent {
   readonly: boolean;
   syncStatus?: EventSyncStatus | null;
   calendarName?: string | null;
+  /** Событие на весь день — время не показываем. */
+  allDay?: boolean;
 }

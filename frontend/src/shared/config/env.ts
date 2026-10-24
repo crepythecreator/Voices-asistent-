@@ -3,9 +3,14 @@
 /** Работа без бэкенда на моках (тестовый пользователь, фиктивные ответы). Включить: VITE_USE_MOCKS=true */
 export const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 
+export type SttMode = "auto" | "browser" | "server";
+
 /**
  * Движок распознавания речи:
- *   browser (по умолчанию) — Web Speech API браузера
- *   server                 — запись в браузере, распознавание на бэкенде через Yandex SpeechKit
+ *   auto (по умолчанию) — браузерный Web Speech API, а где он не работает (Яндекс Браузер) —
+ *                          серверное распознавание
+ *   browser             — только Web Speech API браузера
+ *   server              — запись в браузере, распознавание на бэкенде (Cloud.ru GigaASR / Yandex SpeechKit)
  */
-export const STT_ENGINE: "browser" | "server" = import.meta.env.VITE_STT_ENGINE === "server" ? "server" : "browser";
+const raw = import.meta.env.VITE_STT_ENGINE;
+export const STT_ENGINE: SttMode = raw === "browser" || raw === "server" ? raw : "auto";

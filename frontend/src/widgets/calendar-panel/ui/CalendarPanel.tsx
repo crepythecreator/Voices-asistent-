@@ -1,53 +1,70 @@
 import { useState } from "react";
+import { CalendarDays, List } from "lucide-react";
 
-import { EventCard } from "@/entities/event";
-import { dayFormat, dayKey } from "@/shared/lib/format";
-import { Calendar } from "@/shared/ui/calendar";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Button } from "@/shared/ui/button";
+import { Segmented } from "@/shared/ui/segmented";
+import { useCalendarPrefs } from "../model/useCalendarPrefs";
 import { useMonthEvents } from "../model/useMonthEvents";
+import { useUpcomingEvents } from "../model/useUpcomingEvents";
+import { CategoryFilter } from "./CategoryFilter";
+import { ListView } from "./ListView";
+import { MonthView } from "./MonthView";
 
+/** Календарь: «Месяц» — сетка с точками и события дня, «Список» — доска предстоящих событий. */
 export function CalendarPanel() {
-  const [selected, setSelected] = useState<Date>(new Date());
-  const [month, setMonth] = useState<Date>(new Date());
-  const { loading, byDay, daysWithEvents } = useMonthEvents(month);
+  const { view, setView, hidden, toggleCategory, visible } = useCalendarPrefs();
+  const [selected, setSelected] = useState<Date>(() => new Date());
+  const [month, setMonth] = useState<Date>(() => new Date());
 
-  const dayEvents = byDay.get(dayKey(selected)) ?? [];
+  // Грузим только для активного вида — запросы к календарям Яндекса и Google небыстрые
+  const monthData = useMonthEvents(month, view === "month");
+  const upcoming = useUpcomingEvents(view === "list");
+
+  const goToday = () => {
+    const now = new Date();
+    setSelected(now);
+    setMonth(now);
+    // В списке «Сегодня» — это начало ленты
+    document.getElementById("calendar-top")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card className="py-3">
-        <CardContent className="px-3">
-          <Calendar
-            mode="single"
-            required
-            selected={selected}
-            onSelect={setSelected}
-            month={month}
-            onMonthChange={setMonth}
-            modifiers={{ hasEvents: daysWithEvents }}
-            modifiersClassNames={{
-              hasEvents:
-                "after:absolute after:bottom-1 after:left-1/2 after:size-1 after:-translate-x-1/2 after:rounded-full after:bg-primary [&[aria-selected]]:after:bg-primary-foreground",
-            }}
-          />
-        </CardContent>
-      </Card>
+    <div className="flex flex-col gap-3">
+      <div id="calendar-top" className="flex items-center gap-2">
+        <Segmented
+          aria-label="Вид календаря"
+          value={view}
+          onChange={setView}
+          className="flex-1"
+          options={[
+            { id: "month", label: "Месяц", icon: CalendarDays },
+            { id: "list", label: "Список", icon: List },
+          ]}
+        />
+        <Button variant="outline" size="sm" onClick={goToday}>
+          Сегодня
+        </Button>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="first-letter:uppercase">{dayFormat.format(selected)}</CardTitle>
-          <CardDescription>
-            {loading ? "Загрузка…" : dayEvents.length ? `Событий: ${dayEvents.length}` : "Ничего не запланировано"}
-          </CardDescription>
-        </CardHeader>
-        {dayEvents.length > 0 && (
-          <CardContent className="flex flex-col gap-2">
-            {dayEvents.map((e) => (
-              <EventCard key={e.id} event={e} />
-            ))}
-          </CardContent>
-        )}
-      </Card>
+      <CategoryFilter hidden={hidden} onToggle={toggleCategory} />
+
+      {view === "month" ? (
+        <MonthView
+          events={monthData.events.filter(visible)}
+          loading={monthData.loading}
+          month={month}
+          onMonthChange={setMonth}
+          selected={selected}
+          onSelect={setSelected}
+        />
+      ) : (
+        <ListView
+          events={upcoming.events.filter(visible)}
+          loading={upcoming.loading}
+          days={upcoming.days}
+          onLoadMore={upcoming.loadMore}
+        />
+      )}
     </div>
   );
 }

@@ -133,6 +133,7 @@ class GoogleCalendarClient:
                         end=_parse_time(item.get("end")),
                         calendar_name=cal.get("summaryOverride") or cal.get("summary") or "Google Календарь",
                         source="google",
+                        all_day="date" in (item.get("start") or {}),
                     )
                 )
         return out

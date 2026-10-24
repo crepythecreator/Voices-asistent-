@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiError } from "@/shared/api";
-import { transcribe } from "../api/transcribe";
-import { startRecording, TARGET_SAMPLE_RATE, type Recording } from "../lib/recorder";
+import { ApiError, transcribe } from "@/shared/api";
+import { startRecording, TARGET_SAMPLE_RATE, type Recording } from "@/shared/lib/recorder";
+import { serverSpeechSupported } from "@/shared/lib/speechEngine";
 import type { SpeechOptions, SpeechRecognitionApi } from "./types";
 
 // Синхронное распознавание SpeechKit принимает до 30 секунд аудио.
 const MAX_SECONDS = 29;
 
 /**
- * Движок «запись в браузере + распознавание на бэкенде» (Yandex SpeechKit).
+ * Движок «запись в браузере + распознавание на бэкенде» (Cloud.ru GigaASR или Yandex SpeechKit).
  * Не зависит от браузера: нужен только доступ к микрофону.
  */
 export function useServerSpeech({ lang = "ru-RU", onFinal }: SpeechOptions = {}): SpeechRecognitionApi {
-  const supported = typeof window !== "undefined" && "mediaDevices" in navigator && "AudioWorkletNode" in window;
+  const supported = serverSpeechSupported();
 
   const [listening, setListening] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -47,8 +47,10 @@ export function useServerSpeech({ lang = "ru-RU", onFinal }: SpeechOptions = {})
     startingRef.current = true;
     setError(null);
     try {
-      recordingRef.current = await startRecording((sec) => {
-        if (sec >= MAX_SECONDS) void stop();
+      recordingRef.current = await startRecording({
+        onTick: (sec) => {
+          if (sec >= MAX_SECONDS) void stop();
+        },
       });
       setListening(true);
     } catch (e) {

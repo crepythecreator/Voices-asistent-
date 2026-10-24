@@ -53,6 +53,8 @@ class ExternalEvent:
     calendar_name: str
     # yandex | google — откуда событие
     source: str = "yandex"
+    # Событие на весь день (дата без времени)
+    all_day: bool = False
 
 
 def _as_datetime(value: date | datetime) -> datetime:
@@ -76,6 +78,7 @@ def parse_external(ical_text: str, calendar_name: str) -> list[ExternalEvent]:
                 start=_as_datetime(start.dt),
                 end=_as_datetime(end.dt) if end else None,
                 calendar_name=calendar_name,
+                all_day=not isinstance(start.dt, datetime),
             )
         )
     return out

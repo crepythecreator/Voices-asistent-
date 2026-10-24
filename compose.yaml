@@ -40,7 +40,7 @@ services:
       - "5173:5173"
     environment:
       API_URL: http://backend:8000
-      VITE_STT_ENGINE: ${VITE_STT_ENGINE:-browser}
+      VITE_STT_ENGINE: ${VITE_STT_ENGINE:-auto}
       VITE_USE_MOCKS: ${VITE_USE_MOCKS:-false}
     volumes:
       - ./frontend/src:/app/src

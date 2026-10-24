@@ -6,7 +6,13 @@ import { ru } from "react-day-picker/locale";
 import { buttonVariants } from "./button";
 import { cn } from "@/shared/lib/cn";
 
-function Calendar({ className, classNames, showOutsideDays = true, ...props }: React.ComponentProps<typeof DayPicker>) {
+function Calendar({
+  className,
+  classNames,
+  components,
+  showOutsideDays = true,
+  ...props
+}: React.ComponentProps<typeof DayPicker>) {
   const defaults = getDefaultClassNames();
 
   return (
@@ -30,7 +36,7 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: R
         day: "relative flex-1 p-0 text-center aspect-square",
         day_button: cn(
           buttonVariants({ variant: "ghost" }),
-          "size-full min-w-8 p-0 font-normal aria-selected:opacity-100",
+          "relative size-full min-w-8 p-0 font-normal aria-selected:opacity-100",
         ),
         selected: "[&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:hover:bg-primary",
         today: "[&>button]:bg-accent [&>button]:font-semibold",
@@ -42,6 +48,7 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: R
       components={{
         Chevron: ({ orientation }) =>
           orientation === "left" ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />,
+        ...components,
       }}
       {...props}
     />

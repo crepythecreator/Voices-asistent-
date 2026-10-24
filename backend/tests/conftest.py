@@ -21,6 +21,7 @@ os.environ.update(
     GIGACHAT_CREDENTIALS="",
     CLOUDRU_API_KEY="",
     YANDEX_API_KEY="",
+    STT_PROVIDER="auto",
 )
 
 from fastapi.testclient import TestClient  # noqa: E402

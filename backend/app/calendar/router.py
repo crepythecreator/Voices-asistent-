@@ -28,6 +28,8 @@ class EventOut(BaseModel):
     # synced | pending | error; None — нет календарей с включённой синхронизацией
     syncStatus: str | None = None
     calendarName: str | None = None
+    # Событие на весь день — время не показываем
+    allDay: bool = False
 
 
 def event_out(e: Event, user: User) -> EventOut:
@@ -71,6 +73,7 @@ def get_events(
                     source=x.source,  # type: ignore[arg-type]
                     readonly=True,
                     calendarName=x.calendar_name,
+                    allDay=x.all_day,
                 )
             )
     out.sort(key=lambda e: e.start)

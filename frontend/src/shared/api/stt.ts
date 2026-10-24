@@ -5,8 +5,8 @@ export interface TranscribeResponse {
 }
 
 /**
- * Отправляет PCM (16 бит, моно) на бэкенд, который распознаёт его через Yandex SpeechKit.
- * Моков нет: серверный движок включают именно для проверки реального распознавания.
+ * Отправляет PCM (16 бит, моно) на бэкенд: он распознаёт речь через Cloud.ru (GigaASR) или Yandex SpeechKit.
+ * Моков нет: серверное распознавание включают именно для проверки реальной речи.
  */
 export function transcribe(pcm: ArrayBuffer, sampleRate: number, lang: string): Promise<TranscribeResponse> {
   const params = new URLSearchParams({ sample_rate: String(sampleRate), lang });

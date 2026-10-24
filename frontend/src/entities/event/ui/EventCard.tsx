@@ -1,43 +1,67 @@
-import { Bell, CalendarClock, CheckSquare, CloudOff } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, CloudOff, Loader2 } from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
 import { timeFormat } from "@/shared/lib/format";
-import { Badge } from "@/shared/ui/badge";
-import type { CalendarEvent, EventKind } from "../model/types";
+import { CATEGORIES, categoryOf } from "../lib/category";
+import type { CalendarEvent } from "../model/types";
 
-const KIND: Record<EventKind, { label: string; icon: typeof Bell }> = {
-  meeting: { label: "Встреча", icon: CalendarClock },
-  reminder: { label: "Напоминание", icon: Bell },
-  task: { label: "Задача", icon: CheckSquare },
-};
-
+/** Карточка события: время слева, цветная полоса по типу, описание раскрывается по нажатию. */
 export function EventCard({ event: e }: { event: CalendarEvent }) {
+  const [open, setOpen] = useState(false);
+  const category = CATEGORIES[categoryOf(e)];
   const external = e.source !== "assistant";
-  const { label, icon: Icon } = KIND[e.kind];
-  const syncFailed = e.syncStatus === "error";
+  const start = new Date(e.start);
+  const allDay = Boolean(e.allDay);
+  const expandable = Boolean(e.description);
+
+  const meta = [external ? (e.calendarName ?? (e.source === "google" ? "Google" : "Яндекс")) : category.label];
 
   return (
-    <div className={cn("flex items-start gap-3 rounded-lg border p-3", external && "border-dashed bg-muted/40")}>
-      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+    <div
+      className={cn(
+        "flex gap-3 rounded-lg border border-l-4 bg-card px-3 py-2.5",
+        category.bar,
+        external && "border-dashed bg-muted/30",
+      )}
+    >
+      <div className="w-11 shrink-0 pt-px text-xs tabular-nums">
+        {allDay ? (
+          <span className="text-muted-foreground">весь день</span>
+        ) : (
+          <>
+            <div className="font-medium">{timeFormat.format(start)}</div>
+            {e.end && <div className="text-muted-foreground">{timeFormat.format(new Date(e.end))}</div>}
+          </>
+        )}
+      </div>
+
       <div className="min-w-0 flex-1">
-        <div className={cn("truncate text-sm font-medium", external && "text-muted-foreground")}>{e.title}</div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          {timeFormat.format(new Date(e.start))}
-          {e.end && ` – ${timeFormat.format(new Date(e.end))}`}
-          {syncFailed && (
+        <button
+          type="button"
+          disabled={!expandable}
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-start gap-1 text-left disabled:cursor-default"
+          aria-expanded={expandable ? open : undefined}
+        >
+          <span className={cn("flex-1 text-sm font-medium break-words", external && "text-muted-foreground")}>{e.title}</span>
+          {expandable && <ChevronDown className={cn("mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />}
+        </button>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+          <span>{meta.join(" · ")}</span>
+          {e.syncStatus === "error" && (
             <span className="flex items-center gap-1 text-destructive" title="Не удалось выгрузить в подключённый календарь — повторите в настройках">
               · <CloudOff className="size-3" /> не выгружено
             </span>
           )}
+          {e.syncStatus === "pending" && (
+            <span className="flex items-center gap-1" title="Выгружается в подключённые календари">
+              · <Loader2 className="size-3 animate-spin" /> выгрузка
+            </span>
+          )}
         </div>
+        {open && e.description && <p className="mt-2 text-sm whitespace-pre-wrap text-muted-foreground">{e.description}</p>}
       </div>
-      {external ? (
-        <Badge variant="outline" title="Событие из вашего календаря, только для просмотра">
-          {e.calendarName ?? (e.source === "google" ? "Google" : "Яндекс")}
-        </Badge>
-      ) : (
-        <Badge variant="secondary">{label}</Badge>
-      )}
     </div>
   );
 }

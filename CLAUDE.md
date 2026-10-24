@@ -49,7 +49,7 @@ docker compose up --build
 ## Бэкенд (`backend/app/`)
 
 ```
-main.py, config.py, db.py, models.py, security.py (шифрование, сессии, current_user), stt.py (SpeechKit),
+main.py, config.py, db.py, models.py, security.py (шифрование, сессии, current_user), stt.py (серверное распознавание: Cloud.ru GigaASR/Whisper, запасной SpeechKit),
 tts.py (синтез речи: GigaChat/SaluteSpeech через Realtime API Cloud.ru, WebSocket → WAV 24 кГц)
 auth/       providers.py (Яндекс/Google OAuth), accounts.py (вход/связка/подключение, токены), passwords.py, router.py (/auth/*)
 account/    router.py (/account/*: подключения, синхронизация, пароль)
@@ -68,7 +68,7 @@ API:
 - `PATCH /account/settings` `{confirmMode: confirm|auto}` → пользователь
 - `POST /actions/{id}/confirm`, `POST /actions/{id}/reject` → `{id, type, summary, status, error, eventId, expiresAt}`
 - `GET /events?from&to` → наши события (`syncStatus`: synced/pending/error) + занятость из Яндекса и Google; `POST /calendar/sync`
-- `POST /stt?sample_rate=16000&lang=ru-RU`, тело — PCM s16le моно → `{text}`
+- `GET /stt/status`; `POST /stt?sample_rate=16000&lang=ru-RU`, тело — PCM s16le моно → `{text}`
 - `POST /tts` `{text}` (≤1000 символов, разметка вырезается) → `audio/wav`; 503 без `CLOUDRU_API_KEY`
 
 ## Фронтенд
@@ -83,17 +83,18 @@ src/
   app/        main.tsx, App.tsx (AuthProvider + RouterProvider), routes/ (router, guards), styles/
   pages/      assistant (шапка, ассистент, календарь), login, register, settings (профиль, аккаунты и календари, пароль)
   widgets/    header, auth-layout (раскладка входа/регистрации), assistant-panel (AssistantPanel: режимы «Голос»/«Чат»,
-              VoiceView, ChatView, Composer, MessageList), calendar-panel (+ model/useMonthEvents)
+              VoiceView, ChatView, Composer, MessageList), calendar-panel (виды «Месяц»/«Список», фильтр по типам) (+ model/useMonthEvents)
   features/   send-message (useChat, /chat, история), confirm-action (Подтвердить/Отклонить),
               voice-input (распознавание речи), voice-conversation (режим беседы: listenOnce, Speaker, да/нет/стоп), auth (AuthProvider, LoginForm, RegisterForm, OAuthButtons, UserMenu),
               manage-connections (карточки Яндекс/Google в настройках), change-password, confirm-mode (ConfirmModeSetting, ConfirmModeToggle), toggle-theme
-  entities/   connection, message, action (ProposedAction, ActionCard), event (getEvents, EventCard, invalidateEvents), user
+  entities/   connection, message, action (ProposedAction, ActionCard), event (getEvents, EventCard, invalidateEvents, категории и цвета, groupByDay), user
   shared/     ui (shadcn + input, label, switch, form-error, provider-icon), api (fetch-клиент, ApiError, обработчик 401), config (USE_MOCKS, STT_ENGINE, routes, MIN_PASSWORD_LENGTH), lib (cn, errorMessage, форматирование)
 ```
 
-- Распознавание речи: `VITE_STT_ENGINE=browser` (Web Speech API; в Яндекс Браузере/Brave/Arc даёт `network`) или `server` (PCM 16 кГц → `POST /stt`).
+- Распознавание речи: `VITE_STT_ENGINE=auto` (по умолчанию) | `browser` | `server`. В Яндекс Браузере Web Speech даёт `network` (облачный сервис недоступен сайтам, локальный пакет не скачивается, нативного API нет), поэтому `shared/lib/speechEngine.ts` выбирает сервер: Яндекс Браузер, нет Web Speech или флаг `stt-browser-broken` (ставится при `network`, 24 ч). Серверный путь — запись PCM 16 кГц (`shared/lib/recorder.ts`) → `POST /stt`; в беседе конец фразы определяет энергетический VAD (`listenOnceServer`), `listen()` переключается на сервер при `network`. Бэкенд: `STT_PROVIDER=auto` (Cloud.ru при `CLOUDRU_API_KEY`, иначе Яндекс SpeechKit), `STT_MODEL=GigaChat/GigaASR`, запасная `openai/whisper-large-v3`; `GET /stt/status` → `{available, provider}`. Проверено на бэкенде и образце речи; сквозной прогон в браузере с подменой микрофона не удался, на живом микрофоне VAD не проверялся.
 - Роутинг: `/login`, `/register` (`GuestRoute`), `/`, `/settings` (`ProtectedRoute`, гостя → `/login?next=…`). Любой 401 от API сбрасывает пользователя.
 - После подтверждения действия `invalidateEvents()` перезагружает календарь.
+- **Календарь** (`widgets/calendar-panel`): «Месяц» — сетка с цветными точками по типам (свой `DayButton` через контекст) и события выбранного дня; «Список» — доска предстоящих событий по датам с липкими заголовками, догрузка окнами по 30 дней. Фильтр по типам (встречи / напоминания / задачи / другие календари) — он же легенда цветов. Вид и фильтр запоминаются в localStorage; данные грузятся только для активного вида. Внешние события на весь день приходят с `allDay`.
 - **Голос — основной режим** (`widgets/assistant-panel`): большая кнопка-сфера `VoiceOrb`, статус, последняя реплика и карточки подтверждения. Переключатель «Голос / Чат» запоминается в localStorage (`assistant-mode`); оба режима работают с одной историей и одной беседой (`model/useAssistant.ts`), начатая беседа в чате продолжается компактной панелью.
 - **Беседа** (оркестрация — `widgets/assistant-panel/model/useVoiceChat.ts`): слушаем фразу браузерным Web Speech (`continuous=false` — браузер сам ловит конец фразы) → `/chat` → озвучка по предложениям (`Speaker`: первый фрагмент короткий, следующий синтезируется, пока играет текущий; без `CLOUDRU_API_KEY` или при ошибке — `speechSynthesis` браузера). Пока ассистент говорит, микрофон не слушает (иначе услышит себя) — перебить кнопкой. «Стоп»/«хватит» и 3 паузы подряд завершают беседу.
   - Предложенные действия зачитываются с вопросом «Подтвердить?». Короткое «да»/«нет» обрабатывает не ИИ, а правило (`isYes`/`isNo` — только однозначные короткие фразы) и только для действий последнего ответа, через тот же `/actions/{id}/confirm|reject`.

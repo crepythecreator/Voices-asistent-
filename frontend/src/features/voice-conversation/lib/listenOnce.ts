@@ -1,28 +1,20 @@
 // Одна фраза через браузерный Web Speech API. С continuous=false Chrome сам завершает
 // распознавание после паузы — это и есть определение конца фразы.
 
+import { canFallBackToServer, markBrowserSpeechBroken, resolveEngine } from "@/shared/lib/speechEngine";
+import { listenOnceServer } from "./listenOnceServer";
+import { ListenError, type ListenOptions } from "./listenTypes";
+
 const ERRORS: Record<string, string> = {
   "not-allowed": "Нет доступа к микрофону. Разрешите его в настройках браузера.",
   "service-not-allowed": "Распознавание речи запрещено в этом браузере.",
   "audio-capture": "Микрофон не найден.",
-  network:
-    "Браузер не может связаться со своим сервисом распознавания. Для беседы нужен Google Chrome или Safari.",
+  network: "Браузер не может связаться со своим сервисом распознавания речи.",
 };
 
-export class ListenError extends Error {}
+export { ListenError };
 
-export function speechRecognitionSupported(): boolean {
-  return typeof window !== "undefined" && Boolean(window.SpeechRecognition ?? window.webkitSpeechRecognition);
-}
-
-interface Options {
-  lang?: string;
-  onInterim?: (text: string) => void;
-  signal?: AbortSignal;
-}
-
-/** Слушает одну фразу. Пустая строка — пользователь ничего не сказал (или прервали). */
-export function listenOnce({ lang = "ru-RU", onInterim, signal }: Options = {}): Promise<string> {
+function listenOnceBrowser({ lang = "ru-RU", onInterim, signal }: ListenOptions = {}): Promise<string> {
   const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
   if (!Ctor) return Promise.reject(new ListenError("Распознавание речи не поддерживается этим браузером."));
 
@@ -47,7 +39,7 @@ export function listenOnce({ lang = "ru-RU", onInterim, signal }: Options = {}):
     rec.onerror = (e) => {
       if (e.error === "no-speech" || e.error === "aborted") return; // закончится через onend с пустым текстом
       failed = true;
-      reject(new ListenError(ERRORS[e.error] ?? `Ошибка распознавания: ${e.error}`));
+      reject(new ListenError(ERRORS[e.error] ?? `Ошибка распознавания: ${e.error}`, e.error));
     };
     rec.onend = () => {
       signal?.removeEventListener("abort", abort);
@@ -58,4 +50,22 @@ export function listenOnce({ lang = "ru-RU", onInterim, signal }: Options = {}):
     signal?.addEventListener("abort", abort, { once: true });
     rec.start();
   });
+}
+
+/**
+ * Слушает одну фразу. Движок — по настройкам и браузеру (см. speechEngine): Web Speech API или запись
+ * с серверным распознаванием. Если браузерный движок ответил `network` (Яндекс Браузер), запоминаем это
+ * и дальше работаем через сервер. Пустая строка — пользователь ничего не сказал (или прервали).
+ */
+export async function listen(options: ListenOptions = {}): Promise<string> {
+  if (resolveEngine() === "server") return listenOnceServer(options);
+  try {
+    return await listenOnceBrowser(options);
+  } catch (e) {
+    if (e instanceof ListenError && e.code === "network" && canFallBackToServer()) {
+      markBrowserSpeechBroken();
+      return listenOnceServer(options);
+    }
+    throw e;
+  }
 }

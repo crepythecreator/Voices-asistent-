@@ -22,13 +22,21 @@ export interface Recording {
   cancel: () => void;
 }
 
-export async function startRecording(onTick?: (seconds: number) => void): Promise<Recording> {
+export interface RecordingOptions {
+  /** Сколько секунд записано (вызывается на каждый блок звука). */
+  onTick?: (seconds: number) => void;
+  /** Блок звука с микрофона (float32, частота — sampleRate контекста): для определения конца фразы. */
+  onChunk?: (chunk: Float32Array, sampleRate: number) => void;
+}
+
+export async function startRecording({ onTick, onChunk }: RecordingOptions = {}): Promise<Recording> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
   });
   // Частоту не задаём: Firefox не умеет подключать микрофон к контексту с другой частотой.
   // Вместо этого понижаем частоту сами в конце записи.
   const ctx = new AudioContext();
+  if (ctx.state === "suspended") await ctx.resume().catch(() => {});
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
 
   try {
@@ -54,6 +62,7 @@ export async function startRecording(onTick?: (seconds: number) => void): Promis
     chunks.push(e.data);
     samples += e.data.length;
     onTick?.(samples / ctx.sampleRate);
+    onChunk?.(e.data, ctx.sampleRate);
   };
 
   const release = () => {

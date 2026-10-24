@@ -49,8 +49,18 @@ class Settings(BaseSettings):
     # Нужен только при авторизации IAM-токеном, для API-ключа можно не задавать
     yandex_folder_id: str | None = None
 
-    # --- Синтез речи: GigaChat/SaluteSpeech через Cloud.ru Foundation Models (Realtime API) ---
+    # --- Cloud.ru Foundation Models: ключ общий для синтеза и распознавания речи ---
     cloudru_api_key: str | None = None
+    cloudru_base_url: str = "https://foundation-models.api.cloud.ru/v1"
+
+    # --- Распознавание речи на сервере (для браузеров без рабочего Web Speech API) ---
+    # auto — Cloud.ru, если есть CLOUDRU_API_KEY, иначе Yandex SpeechKit; либо cloudru / yandex явно
+    stt_provider: str = "auto"
+    stt_model: str = "GigaChat/GigaASR"
+    # Если основная модель вернула ошибку — пробуем эту (пусто — не использовать)
+    stt_fallback_model: str | None = "openai/whisper-large-v3"
+
+    # --- Синтез речи: GigaChat/SaluteSpeech через Cloud.ru Foundation Models (Realtime API) ---
     tts_url: str = "wss://foundation-models.api.cloud.ru/v1/realtime"
     tts_model: str = "GigaChat/SaluteSpeech"
     # Mer-Operator, Kaz-Lifelike, Tsb-Freespeech, Gli-Operator, Gli-Freespeech, Bab-Debate,

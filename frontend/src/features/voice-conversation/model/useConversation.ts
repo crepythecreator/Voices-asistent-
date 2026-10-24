@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isStop } from "../lib/text";
-import { ListenError, listenOnce, speechRecognitionSupported } from "../lib/listenOnce";
+import { speechInputSupported } from "@/shared/lib/speechEngine";
+import { ListenError, listen } from "../lib/listenOnce";
 import { Speaker } from "./speaker";
 
 export type ConversationState = "idle" | "listening" | "thinking" | "speaking";
@@ -54,7 +55,7 @@ export function useConversation({ respond }: Options) {
 
       let text: string;
       try {
-        text = await listenOnce({ onInterim: setTranscript, signal: abort.signal });
+        text = await listen({ onInterim: setTranscript, signal: abort.signal });
       } catch (e) {
         setError(e instanceof ListenError ? e.message : "Не удалось распознать речь");
         stop();
@@ -91,8 +92,8 @@ export function useConversation({ respond }: Options) {
 
   const start = useCallback(() => {
     if (activeRef.current) return;
-    if (!speechRecognitionSupported()) {
-      setError("Беседа работает в Google Chrome и Safari: этот браузер не умеет распознавать речь.");
+    if (!speechInputSupported()) {
+      setError("Этот браузер не умеет принимать голос. Откройте сайт в Google Chrome, Яндекс Браузере или Safari.");
       return;
     }
     setError(null);

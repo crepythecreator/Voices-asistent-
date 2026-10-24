@@ -62,6 +62,7 @@ def test_parse_external_ical():
     assert [e.title for e in events] == ["Планёрка", "Отпуск"]
     assert events[0].start.hour == 7 and events[0].start.tzinfo is not None
     assert events[1].start.tzinfo is not None  # событие на весь день
+    assert (events[0].all_day, events[1].all_day) == (False, True)
 
 
 def test_google_calendar_client():
@@ -115,6 +116,7 @@ def test_google_calendar_client():
     found = client.external_events(start, start + timedelta(days=3), exclude_id=cal_id)
     assert [e.title for e in found] == ["Стоматолог", "Отпуск"]  # свой календарь и отменённые пропущены
     assert found[0].start.hour == 7 and found[0].calendar_name == "Личный"
+    assert (found[0].all_day, found[1].all_day) == (False, True)
 
 
 class FakeWebSocket:
@@ -178,3 +180,90 @@ def test_tts_errors(user_client, monkeypatch):
 
 def test_tts_requires_login(client):
     assert client.post("/tts", json={"text": "привет"}).status_code == 401
+
+
+# --- Распознавание речи на сервере -------------------------------------------------------------
+
+
+def stt_transport(seen: list, responses: dict[str, tuple[int, dict]]):
+    """Подмена Cloud.ru: на каждую модель — свой ответ."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content
+        model = next(m for m in responses if m.encode() in body)
+        seen.append((model, body, request.headers))
+        status, payload = responses[model]
+        return httpx.Response(status, json=payload)
+
+    return httpx.MockTransport(handler)
+
+
+def use_stt_transport(monkeypatch, transport):
+    from app import stt
+
+    monkeypatch.setattr(stt, "_client", lambda: httpx.AsyncClient(transport=transport))
+
+
+def test_stt_cloudru_gigaasr(user_client, monkeypatch):
+    monkeypatch.setattr(settings, "cloudru_api_key", "key")
+    seen: list = []
+    use_stt_transport(monkeypatch, stt_transport(seen, {"GigaChat/GigaASR": (200, {"text": " Напомни завтра в 9 утра. "})}))
+
+    assert user_client.get("/stt/status").json() == {"available": True, "provider": "cloudru"}
+    r = user_client.post("/stt?sample_rate=16000&lang=ru-RU", content=b"\x00\x01" * 1600)
+    assert r.status_code == 200 and r.json() == {"text": "Напомни завтра в 9 утра."}
+
+    model, body, headers = seen[0]
+    assert model == "GigaChat/GigaASR" and headers["authorization"] == "Bearer key"
+    assert b"RIFF" in body and b'name="language"' in body and b"\r\n\r\nru\r\n" in body  # PCM обёрнут в WAV, язык — ru
+
+
+def test_stt_falls_back_to_whisper(user_client, monkeypatch):
+    monkeypatch.setattr(settings, "cloudru_api_key", "key")
+    seen: list = []
+    use_stt_transport(
+        monkeypatch,
+        stt_transport(
+            seen, {"GigaChat/GigaASR": (500, {"error": "boom"}), "openai/whisper-large-v3": (200, {"text": "Привет"})}
+        ),
+    )
+    r = user_client.post("/stt", content=b"\x00\x01" * 1600)
+    assert r.json() == {"text": "Привет"}
+    assert [m for m, *_ in seen] == ["GigaChat/GigaASR", "openai/whisper-large-v3"]
+
+
+def test_stt_bad_key_is_reported_without_fallback(user_client, monkeypatch):
+    monkeypatch.setattr(settings, "cloudru_api_key", "bad")
+    seen: list = []
+    use_stt_transport(monkeypatch, stt_transport(seen, {"GigaChat/GigaASR": (401, {"error": "unauthorized"})}))
+    r = user_client.post("/stt", content=b"\x00\x01" * 1600)
+    assert r.status_code == 502 and "401" in r.json()["detail"]
+    assert len(seen) == 1  # при неверном ключе вторая модель не пробуется
+
+
+def test_stt_not_configured_and_validation(user_client, monkeypatch):
+    assert user_client.get("/stt/status").json() == {"available": False, "provider": None}
+    assert user_client.post("/stt", content=b"\x00" * 100).status_code == 503
+
+    monkeypatch.setattr(settings, "cloudru_api_key", "key")
+    assert user_client.post("/stt", content=b"").status_code == 422
+    assert user_client.post("/stt", content=b"\x00" * (1024 * 1024 + 1)).status_code == 413
+    assert user_client.post("/stt?sample_rate=12345", content=b"\x00" * 100).status_code == 422
+
+
+def test_stt_requires_login(client):
+    assert client.post("/stt", content=b"\x00" * 100).status_code == 401
+    assert client.get("/stt/status").status_code == 401
+
+
+def test_stt_provider_choice(monkeypatch):
+    from app.stt import resolve_provider
+
+    monkeypatch.setattr(settings, "cloudru_api_key", "a")
+    monkeypatch.setattr(settings, "yandex_api_key", "b")
+    assert resolve_provider() == "cloudru"  # auto: Cloud.ru в приоритете
+    monkeypatch.setattr(settings, "stt_provider", "yandex")
+    assert resolve_provider() == "yandex"
+    monkeypatch.setattr(settings, "cloudru_api_key", None)
+    monkeypatch.setattr(settings, "stt_provider", "cloudru")
+    assert resolve_provider() is None
