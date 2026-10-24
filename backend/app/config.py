@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     # Нужен только при авторизации IAM-токеном, для API-ключа можно не задавать
     yandex_folder_id: str | None = None
 
+    # --- Синтез речи: GigaChat/SaluteSpeech через Cloud.ru Foundation Models (Realtime API) ---
+    cloudru_api_key: str | None = None
+    tts_url: str = "wss://foundation-models.api.cloud.ru/v1/realtime"
+    tts_model: str = "GigaChat/SaluteSpeech"
+    # Mer-Operator, Kaz-Lifelike, Tsb-Freespeech, Gli-Operator, Gli-Freespeech, Bab-Debate,
+    # Bab-Energetic, Bab-Freespeech, Tsb-Hesitating
+    tts_voice: str = "Mer-Operator"
+    tts_speed: float = 1.0
+
     # --- GigaChat ---
     # Ключ авторизации из личного кабинета (base64 от client_id:client_secret)
     gigachat_credentials: str | None = None

@@ -115,3 +115,66 @@ def test_google_calendar_client():
     found = client.external_events(start, start + timedelta(days=3), exclude_id=cal_id)
     assert [e.title for e in found] == ["Стоматолог", "Отпуск"]  # свой календарь и отменённые пропущены
     assert found[0].start.hour == 7 and found[0].calendar_name == "Личный"
+
+
+class FakeWebSocket:
+    """Подмена WebSocket Realtime API: отдаёт два куска аудио и response.done."""
+
+    def __init__(self, events):
+        self.sent: list[dict] = []
+        self.events = [json.dumps(e) for e in events]
+        self.closed = False
+
+    def send(self, data):
+        self.sent.append(json.loads(data))
+
+    def recv(self):
+        return self.events.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
+def test_tts_endpoint_returns_wav(user_client, monkeypatch):
+    import base64
+    import io
+    import wave
+
+    from app import tts
+
+    pcm = b"\x01\x00" * 2400  # 0,1 с тишины
+    ws = FakeWebSocket(
+        [
+            {"type": "response.output_audio.delta", "delta": base64.b64encode(pcm[:2400]).decode()},
+            {"type": "response.output_audio.delta", "delta": base64.b64encode(pcm[2400:]).decode()},
+            {"type": "response.done", "response": {"status": "completed"}},
+        ]
+    )
+    monkeypatch.setattr(settings, "cloudru_api_key", "key")
+    monkeypatch.setattr(tts, "create_connection", lambda url, **kw: ws)
+
+    r = user_client.post("/tts", json={"text": "**Готово!** Напоминание создано."})
+    assert r.status_code == 200 and r.headers["content-type"] == "audio/wav"
+    with wave.open(io.BytesIO(r.content)) as w:
+        assert (w.getframerate(), w.getnchannels(), w.getsampwidth()) == (24000, 1, 2)
+        assert w.readframes(w.getnframes()) == pcm
+    request = ws.sent[0]
+    assert request["model"] == "GigaChat/SaluteSpeech"
+    assert request["response"]["input"][0]["content"][0]["text"] == "Готово! Напоминание создано."  # без разметки
+    assert ws.closed
+
+
+def test_tts_errors(user_client, monkeypatch):
+    from app import tts
+
+    assert user_client.post("/tts", json={"text": "привет"}).status_code == 503  # ключ не задан
+
+    monkeypatch.setattr(settings, "cloudru_api_key", "key")
+    ws = FakeWebSocket([{"type": "error", "error": {"message": "invalid voice"}}])
+    monkeypatch.setattr(tts, "create_connection", lambda url, **kw: ws)
+    r = user_client.post("/tts", json={"text": "привет"})
+    assert r.status_code == 502 and "invalid voice" in r.json()["detail"]
+
+
+def test_tts_requires_login(client):
+    assert client.post("/tts", json={"text": "привет"}).status_code == 401

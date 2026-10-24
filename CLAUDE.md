@@ -47,7 +47,8 @@ docker compose up --build
 ## Бэкенд (`backend/app/`)
 
 ```
-main.py, config.py, db.py, models.py, security.py (шифрование, сессии, current_user), stt.py (SpeechKit)
+main.py, config.py, db.py, models.py, security.py (шифрование, сессии, current_user), stt.py (SpeechKit),
+tts.py (синтез речи: GigaChat/SaluteSpeech через Realtime API Cloud.ru, WebSocket → WAV 24 кГц)
 auth/       providers.py (Яндекс/Google OAuth), accounts.py (вход/связка/подключение, токены), passwords.py, router.py (/auth/*)
 account/    router.py (/account/*: подключения, синхронизация, пароль)
 calendar/   backend.py (интерфейс), yandex_caldav.py, google_calendar.py, ical.py, service.py (выгрузка во все включённые календари, занятость), router.py
@@ -65,6 +66,7 @@ API:
 - `POST /actions/{id}/confirm`, `POST /actions/{id}/reject` → `{id, type, summary, status, error, eventId, expiresAt}`
 - `GET /events?from&to` → наши события (`syncStatus`: synced/pending/error) + занятость из Яндекса и Google; `POST /calendar/sync`
 - `POST /stt?sample_rate=16000&lang=ru-RU`, тело — PCM s16le моно → `{text}`
+- `POST /tts` `{text}` (≤1000 символов, разметка вырезается) → `audio/wav`; 503 без `CLOUDRU_API_KEY`
 
 ## Фронтенд
 
@@ -79,7 +81,7 @@ src/
   pages/      assistant (шапка, чат, календарь), login, register, settings (профиль, аккаунты и календари, пароль)
   widgets/    header, auth-layout (раскладка входа/регистрации), chat (ChatPanel, Composer, MessageList), calendar-panel (+ model/useMonthEvents)
   features/   send-message (useChat, /chat, история), confirm-action (Подтвердить/Отклонить),
-              voice-input (распознавание речи), auth (AuthProvider, LoginForm, RegisterForm, OAuthButtons, UserMenu),
+              voice-input (распознавание речи), voice-conversation (режим беседы: listenOnce, Speaker, да/нет/стоп), auth (AuthProvider, LoginForm, RegisterForm, OAuthButtons, UserMenu),
               manage-connections (карточки Яндекс/Google в настройках), change-password, toggle-theme
   entities/   connection, message, action (ProposedAction, ActionCard), event (getEvents, EventCard, invalidateEvents), user
   shared/     ui (shadcn + input, label, switch, form-error, provider-icon), api (fetch-клиент, ApiError, обработчик 401), config (USE_MOCKS, STT_ENGINE, routes, MIN_PASSWORD_LENGTH), lib (cn, errorMessage, форматирование)
@@ -88,6 +90,8 @@ src/
 - Распознавание речи: `VITE_STT_ENGINE=browser` (Web Speech API; в Яндекс Браузере/Brave/Arc даёт `network`) или `server` (PCM 16 кГц → `POST /stt`).
 - Роутинг: `/login`, `/register` (`GuestRoute`), `/`, `/settings` (`ProtectedRoute`, гостя → `/login?next=…`). Любой 401 от API сбрасывает пользователя.
 - После подтверждения действия `invalidateEvents()` перезагружает календарь.
+- **Режим беседы** (кнопка с волной в поле ввода; оркестрация — `widgets/chat/model/useVoiceChat.ts`): слушаем фразу браузерным Web Speech (`continuous=false` — браузер сам ловит конец фразы) → `/chat` → озвучка по предложениям (`Speaker`: первый фрагмент короткий, следующий синтезируется, пока играет текущий; без `CLOUDRU_API_KEY` или при ошибке — `speechSynthesis` браузера). Пока ассистент говорит, микрофон не слушает (иначе услышит себя) — перебить кнопкой. «Стоп»/«хватит» и 3 паузы подряд завершают беседу.
+  - Предложенные действия зачитываются с вопросом «Подтвердить?». Короткое «да»/«нет» обрабатывает не ИИ, а правило (`isYes`/`isNo` — только однозначные короткие фразы) и только для действий последнего ответа, через тот же `/actions/{id}/confirm|reject`.
 - `VITE_USE_MOCKS=true` — работа без бэкенда (по умолчанию выключено; Vite читает `.env` из корня, `envDir`) (тестовый пользователь, фиктивные ответы и события).
 
 ## Референс

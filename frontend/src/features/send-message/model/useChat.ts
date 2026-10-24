@@ -24,9 +24,10 @@ export function useChat() {
     };
   }, []);
 
-  const send = useCallback(async (text: string, source: MessageSource = "text") => {
+  /** Отправляет сообщение. Возвращает ответ ассистента (null — ошибка). */
+  const send = useCallback(async (text: string, source: MessageSource = "text"): Promise<Message | null> => {
     const message = text.trim();
-    if (!message) return;
+    if (!message) return null;
 
     const now = new Date().toISOString();
     const userMsg: Message = { id: uid(), role: "user", text: message, createdAt: now, source };
@@ -41,6 +42,7 @@ export function useChat() {
     try {
       const { message: reply } = await sendMessage({ message, source, timezone });
       setMessages((prev) => prev.map((m) => (m.id === placeholderId ? reply : m)));
+      return reply;
     } catch {
       setMessages((prev) =>
         prev.map((m) =>
@@ -49,6 +51,7 @@ export function useChat() {
             : m,
         ),
       );
+      return null;
     } finally {
       setSending(false);
     }

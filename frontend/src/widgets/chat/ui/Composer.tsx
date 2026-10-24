@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, AudioLines } from "lucide-react";
 
 import type { MessageSource } from "@/entities/message";
 import { useSpeechRecognition, VoiceButton, voiceStatus } from "@/features/voice-input";
@@ -9,10 +9,12 @@ import { Textarea } from "@/shared/ui/textarea";
 
 interface Props {
   onSend: (text: string, source: MessageSource) => void;
+  /** Включить режим беседы голосом. */
+  onStartConversation?: () => void;
   disabled?: boolean;
 }
 
-export function Composer({ onSend, disabled }: Props) {
+export function Composer({ onSend, onStartConversation, disabled }: Props) {
   const [value, setValue] = useState("");
   const [fromVoice, setFromVoice] = useState(false);
 
@@ -62,6 +64,19 @@ export function Composer({ onSend, disabled }: Props) {
             {voiceStatus(voice) ?? "Enter — отправить, Shift+Enter — новая строка"}
           </span>
           <div className="flex shrink-0 gap-1">
+            {onStartConversation && (
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                onClick={onStartConversation}
+                disabled={disabled || voice.listening || voice.processing}
+                aria-label="Беседа голосом"
+                title="Беседа голосом: говорите — ассистент ответит голосом"
+              >
+                <AudioLines />
+              </Button>
+            )}
             <VoiceButton voice={voice} />
             <Button
               type="button"

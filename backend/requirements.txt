@@ -11,3 +11,4 @@ caldav==1.*
 icalendar
 argon2-cffi
 email-validator
+websocket-client

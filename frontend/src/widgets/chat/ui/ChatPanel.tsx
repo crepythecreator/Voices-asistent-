@@ -1,8 +1,10 @@
 import { AudioLines } from "lucide-react";
 
 import { useChat } from "@/features/send-message";
+import { ConversationPanel } from "@/features/voice-conversation";
 import { Button } from "@/shared/ui/button";
 import { FullscreenSpinner } from "@/shared/ui/spinner";
+import { useVoiceChat } from "../model/useVoiceChat";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 
@@ -15,6 +17,7 @@ const SUGGESTIONS = [
 
 export function ChatPanel() {
   const { messages, sending, loadingHistory, send, updateAction } = useChat();
+  const conversation = useVoiceChat({ messages, send, updateAction });
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -49,7 +52,19 @@ export function ChatPanel() {
           <MessageList messages={messages} onActionResolved={updateAction} />
         )}
       </div>
-      <Composer onSend={send} disabled={sending} />
+      {conversation.error && !conversation.active && (
+        <p className="mx-auto w-full max-w-3xl px-6 pb-2 text-sm text-destructive">{conversation.error}</p>
+      )}
+      {conversation.active ? (
+        <ConversationPanel
+          state={conversation.state}
+          transcript={conversation.transcript}
+          onInterrupt={conversation.interrupt}
+          onStop={conversation.stop}
+        />
+      ) : (
+        <Composer onSend={send} onStartConversation={conversation.start} disabled={sending} />
+      )}
     </section>
   );
 }
