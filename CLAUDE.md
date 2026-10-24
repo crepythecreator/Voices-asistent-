@@ -78,8 +78,9 @@ API:
 ```
 src/
   app/        main.tsx, App.tsx (AuthProvider + RouterProvider), routes/ (router, guards), styles/
-  pages/      assistant (шапка, чат, календарь), login, register, settings (профиль, аккаунты и календари, пароль)
-  widgets/    header, auth-layout (раскладка входа/регистрации), chat (ChatPanel, Composer, MessageList), calendar-panel (+ model/useMonthEvents)
+  pages/      assistant (шапка, ассистент, календарь), login, register, settings (профиль, аккаунты и календари, пароль)
+  widgets/    header, auth-layout (раскладка входа/регистрации), assistant-panel (AssistantPanel: режимы «Голос»/«Чат»,
+              VoiceView, ChatView, Composer, MessageList), calendar-panel (+ model/useMonthEvents)
   features/   send-message (useChat, /chat, история), confirm-action (Подтвердить/Отклонить),
               voice-input (распознавание речи), voice-conversation (режим беседы: listenOnce, Speaker, да/нет/стоп), auth (AuthProvider, LoginForm, RegisterForm, OAuthButtons, UserMenu),
               manage-connections (карточки Яндекс/Google в настройках), change-password, toggle-theme
@@ -90,7 +91,8 @@ src/
 - Распознавание речи: `VITE_STT_ENGINE=browser` (Web Speech API; в Яндекс Браузере/Brave/Arc даёт `network`) или `server` (PCM 16 кГц → `POST /stt`).
 - Роутинг: `/login`, `/register` (`GuestRoute`), `/`, `/settings` (`ProtectedRoute`, гостя → `/login?next=…`). Любой 401 от API сбрасывает пользователя.
 - После подтверждения действия `invalidateEvents()` перезагружает календарь.
-- **Режим беседы** (кнопка с волной в поле ввода; оркестрация — `widgets/chat/model/useVoiceChat.ts`): слушаем фразу браузерным Web Speech (`continuous=false` — браузер сам ловит конец фразы) → `/chat` → озвучка по предложениям (`Speaker`: первый фрагмент короткий, следующий синтезируется, пока играет текущий; без `CLOUDRU_API_KEY` или при ошибке — `speechSynthesis` браузера). Пока ассистент говорит, микрофон не слушает (иначе услышит себя) — перебить кнопкой. «Стоп»/«хватит» и 3 паузы подряд завершают беседу.
+- **Голос — основной режим** (`widgets/assistant-panel`): большая кнопка-сфера `VoiceOrb`, статус, последняя реплика и карточки подтверждения. Переключатель «Голос / Чат» запоминается в localStorage (`assistant-mode`); оба режима работают с одной историей и одной беседой (`model/useAssistant.ts`), начатая беседа в чате продолжается компактной панелью.
+- **Беседа** (оркестрация — `widgets/assistant-panel/model/useVoiceChat.ts`): слушаем фразу браузерным Web Speech (`continuous=false` — браузер сам ловит конец фразы) → `/chat` → озвучка по предложениям (`Speaker`: первый фрагмент короткий, следующий синтезируется, пока играет текущий; без `CLOUDRU_API_KEY` или при ошибке — `speechSynthesis` браузера). Пока ассистент говорит, микрофон не слушает (иначе услышит себя) — перебить кнопкой. «Стоп»/«хватит» и 3 паузы подряд завершают беседу.
   - Предложенные действия зачитываются с вопросом «Подтвердить?». Короткое «да»/«нет» обрабатывает не ИИ, а правило (`isYes`/`isNo` — только однозначные короткие фразы) и только для действий последнего ответа, через тот же `/actions/{id}/confirm|reject`.
 - `VITE_USE_MOCKS=true` — работа без бэкенда (по умолчанию выключено; Vite читает `.env` из корня, `envDir`) (тестовый пользователь, фиктивные ответы и события).
 

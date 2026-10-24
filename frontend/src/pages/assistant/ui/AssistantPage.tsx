@@ -1,19 +1,19 @@
 import { useState } from "react";
 
 import { CalendarPanel } from "@/widgets/calendar-panel";
-import { ChatPanel } from "@/widgets/chat";
+import { AssistantPanel } from "@/widgets/assistant-panel";
 import { Header } from "@/widgets/header";
 import { cn } from "@/shared/lib/cn";
 
 export function AssistantPage() {
-  // На широких экранах календарь открыт сбоку, на узких — поверх чата.
+  // На широких экранах календарь открыт сбоку, на узких — поверх ассистента.
   const [calendarOpen, setCalendarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
 
   return (
     <div className="flex h-full flex-col">
       <Header calendarOpen={calendarOpen} onToggleCalendar={() => setCalendarOpen((v) => !v)} />
       <div className="relative flex min-h-0 flex-1">
-        <ChatPanel />
+        <AssistantPanel />
         {calendarOpen && (
           <aside
             className={cn(

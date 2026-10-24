@@ -1,3 +1,5 @@
 export { useConversation, type ConversationState } from "./model/useConversation";
-export { ConversationPanel } from "./ui/ConversationPanel";
+export { ConversationPanel, STATE_LABELS } from "./ui/ConversationPanel";
+export { VoiceOrb } from "./ui/VoiceOrb";
 export { isNo, isYes } from "./lib/text";
+export { speechRecognitionSupported } from "./lib/listenOnce";
