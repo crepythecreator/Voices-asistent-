@@ -223,3 +223,65 @@ def test_external_events_from_google(user_client, use_llm, calendars, monkeypatc
     )
     [event] = r.json()
     assert event["source"] == "google" and event["readonly"] is True
+
+
+# --- Режим подтверждения ---------------------------------------------------------------------
+
+
+def set_mode(client, mode: str):
+    r = client.patch("/account/settings", json={"confirmMode": mode})
+    assert r.status_code == 200 and r.json()["confirmMode"] == mode
+
+
+def test_auto_mode_applies_create_immediately(user_client, use_llm, calendars):
+    set_mode(user_client, "auto")
+    llm = use_llm(
+        ScriptedLLM(
+            call("propose_create_event", title="Позвонить врачу", kind="reminder", start=f"{TOMORROW}T09:00"),
+            text("Создал напоминание на завтра в 9:00."),
+        )
+    )
+    body = chat(user_client, "Напомни завтра в 9 позвонить врачу")
+    [action] = body["message"]["actions"]
+    assert action["status"] == "applied"
+    assert events_count() == 1
+    assert list(calendars["yandex"].saved.values()) == ["Позвонить врачу"]
+    # Модель узнаёт, что изменение уже выполнено, — и промпт говорит ей об авто-режиме
+    assert json.loads(llm.requests[1][-1]["content"])["status"] == "applied"
+    assert "автоматический режим" in llm.requests[0][0]["content"]
+
+
+def test_auto_mode_still_asks_before_delete(user_client, use_llm, calendars):
+    set_mode(user_client, "auto")
+    use_llm(ScriptedLLM(call("propose_create_event", title="Встреча", kind="meeting", start=f"{TOMORROW}T15:00"), text("Ок")))
+    chat(user_client, "Встреча завтра в 15")
+    with SessionLocal() as db:
+        event_id = str(db.scalar(select(Event.id)))
+
+    llm = use_llm(ScriptedLLM(call("propose_delete_event", event_id=event_id), text("Подготовил удаление.")))
+    [action] = chat(user_client, "Удали встречу")["message"]["actions"]
+    assert action["status"] == "pending"
+    assert events_count() == 1  # без подтверждения не удалено
+    assert json.loads(llm.requests[1][-1]["content"])["status"] == "proposed"
+    user_client.post(f"/actions/{action['id']}/confirm")
+    assert events_count() == 0
+
+
+def test_auto_mode_invalid_args_still_rejected(user_client, use_llm, calendars):
+    set_mode(user_client, "auto")
+    use_llm(
+        ScriptedLLM(
+            call("propose_create_event", title="Встреча", kind="meeting", start=f"{TOMORROW}T15:00", end=f"{TOMORROW}T14:00"),
+            text("Уточните время."),
+        )
+    )
+    assert chat(user_client, "Встреча с 15 до 14")["message"]["actions"] == []
+    assert events_count() == 0
+
+
+def test_confirm_mode_is_default(user_client, use_llm, calendars):
+    assert user_client.get("/auth/me").json()["confirmMode"] == "confirm"
+    llm = use_llm(ScriptedLLM(call("propose_create_event", title="X", kind="task", start=f"{TOMORROW}T10:00"), text("Ок")))
+    assert chat(user_client, "Задача X завтра в 10")["message"]["actions"][0]["status"] == "pending"
+    assert "Ты не можешь сам менять календарь" in llm.requests[0][0]["content"]
+    assert user_client.patch("/account/settings", json={"confirmMode": "yolo"}).status_code == 422

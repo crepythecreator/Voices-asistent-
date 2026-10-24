@@ -9,7 +9,13 @@ import { authApi, oauthLoginUrl } from "../api/authApi";
 // В режиме моков вход подставляет тестового пользователя и запоминает его в localStorage.
 
 const MOCK_USER_KEY = "mock-user";
-const MOCK_USER: User = { id: "mock", name: "Тестовый пользователь", email: "test@example.com", hasPassword: true };
+const MOCK_USER: User = {
+  id: "mock",
+  name: "Тестовый пользователь",
+  email: "test@example.com",
+  hasPassword: true,
+  confirmMode: "confirm",
+};
 
 interface AuthState {
   user: User | null;
@@ -22,6 +28,8 @@ interface AuthState {
   logout: () => Promise<void>;
   /** Перечитать профиль (после смены пароля, подключения аккаунта). */
   refresh: () => Promise<void>;
+  /** Обновить профиль ответом сервера (например, после смены настроек). */
+  setUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -95,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, loginWithPassword, register, loginWithProvider, logout, refresh }),
+    () => ({ user, loading, loginWithPassword, register, loginWithProvider, logout, refresh, setUser }),
     [user, loading, loginWithPassword, register, loginWithProvider, logout, refresh],
   );
 

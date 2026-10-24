@@ -1,7 +1,7 @@
 """Функции, доступные модели.
 
-list_events — только чтение. propose_* — только создают черновик действия (см. actions.py):
-модель физически не может изменить календарь, даже если её «уговорят» текстом в событии.
+list_events — только чтение. propose_* создают черновик действия (см. actions.py). Применяет его
+не модель: в режиме confirm — пользователь, в режиме auto — сервер сразу (кроме удаления).
 """
 
 import logging
@@ -37,7 +37,7 @@ _EVENT_FIELDS = {
 _PROPOSAL_RESULT = {
     "type": "object",
     "properties": {
-        "status": {"type": "string", "enum": ["proposed", "error"]},
+        "status": {"type": "string", "enum": ["proposed", "applied", "error"]},
         "summary": {"type": "string", "description": "Что именно предложено"},
         "error": {"type": "string", "description": "Почему предложение не принято — исправь аргументы"},
     },
@@ -86,8 +86,8 @@ FUNCTIONS: list[dict[str, Any]] = [
     {
         "name": "propose_create_event",
         "description": (
-            "Предлагает создать встречу, напоминание или задачу. Событие НЕ создаётся: пользователь "
-            "увидит карточку и подтвердит её сам."
+            "Создаёт встречу, напоминание или задачу. В зависимости от режима пользователя событие "
+            "создаётся сразу (status=applied) или ждёт подтверждения (status=proposed)."
         ),
         "parameters": {"type": "object", "properties": _EVENT_FIELDS, "required": ["title", "kind", "start"]},
         "few_shot_examples": [
@@ -111,7 +111,7 @@ FUNCTIONS: list[dict[str, Any]] = [
         "name": "propose_update_event",
         "description": (
             "Предлагает изменить событие ассистента (source=assistant). Передай event_id из list_events и "
-            "только меняющиеся поля. Изменение НЕ выполняется до подтверждения пользователем."
+            "только меняющиеся поля. Применяется сразу (status=applied) или ждёт подтверждения (status=proposed)."
         ),
         "parameters": {
             "type": "object",
@@ -124,7 +124,7 @@ FUNCTIONS: list[dict[str, Any]] = [
         "name": "propose_delete_event",
         "description": (
             "Предлагает удалить событие ассистента (source=assistant) по event_id из list_events. "
-            "Удаление НЕ выполняется до подтверждения пользователем."
+            "Удаление всегда ждёт подтверждения пользователя."
         ),
         "parameters": {
             "type": "object",
@@ -188,11 +188,20 @@ def execute(ctx: ToolContext, name: str, args: dict[str, Any]) -> dict[str, Any]
         if name in PROPOSAL_FUNCTIONS:
             action = actions.propose(ctx.db, ctx.user, PROPOSAL_FUNCTIONS[name], args, ctx.tz)
             ctx.proposed.append(action)
-            return {
-                "status": "proposed",
-                "summary": action.summary,
-                "note": "Изменение НЕ выполнено. Пользователь подтвердит или отклонит его в карточке под ответом.",
-            }
+            if actions.needs_confirmation(ctx.user, action.type):
+                return {
+                    "status": "proposed",
+                    "summary": action.summary,
+                    "note": "Изменение НЕ выполнено. Пользователь подтвердит или отклонит его в карточке под ответом.",
+                }
+            # Режим auto: применяем сразу. Сначала фиксируем черновик и реплику пользователя —
+            # apply_action при ошибке откатывает транзакцию.
+            ctx.db.commit()
+            action = actions.apply_action(ctx.db, ctx.user, action.id)
+            ctx.proposed[-1] = action
+            if action.status == "applied":
+                return {"status": "applied", "summary": action.summary, "note": "Изменение уже выполнено."}
+            return {"status": "error", "error": action.error or "Не удалось применить изменение"}
         return {"status": "error", "error": f"Неизвестная функция {name}"}
     except ActionValidationError as e:
         return {"status": "error", "error": str(e)}

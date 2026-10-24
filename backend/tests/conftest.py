@@ -17,7 +17,10 @@ os.environ.update(
     YANDEX_CLIENT_SECRET="ya-secret",
     GOOGLE_CLIENT_ID="g-client",
     GOOGLE_CLIENT_SECRET="g-secret",
+    # Настоящие ключи из .env тестам не нужны: внешние сервисы подменены, а лишние запросы стоят денег
     GIGACHAT_CREDENTIALS="",
+    CLOUDRU_API_KEY="",
+    YANDEX_API_KEY="",
 )
 
 from fastapi.testclient import TestClient  # noqa: E402

@@ -1,8 +1,11 @@
 """Предложенные ИИ изменения календаря.
 
-Правило: модель не меняет календарь. Её «изменяющие» функции только создают ProposedAction
-со статусом pending. Применяет действие пользователь (POST /actions/{id}/confirm) — и в этот
-момент всё проверяется заново: действие не просрочено, событие существует и принадлежит ему.
+Модель не меняет календарь напрямую: её «изменяющие» функции создают ProposedAction, а применяет
+его apply_action — с повторной проверкой (не просрочено, событие существует и принадлежит пользователю).
+
+Кто вызывает apply_action, зависит от режима пользователя (users.confirm_mode):
+- confirm — только пользователь, кнопкой или голосом (POST /actions/{id}/confirm);
+- auto — сервер сразу после предложения, кроме удаления: оно необратимо и всегда ждёт подтверждения.
 """
 
 import uuid
@@ -19,6 +22,10 @@ from ..db import as_utc, utcnow
 from ..models import Event, ProposedAction, User
 
 ACTION_TTL = timedelta(hours=24)
+CONFIRM_MODES = ("confirm", "auto")
+# Что в режиме auto применяется без подтверждения. Удаление — никогда: его не отменить, а текст
+# из чужих календарей (названия событий) мог бы подтолкнуть модель удалить лишнее.
+AUTO_APPLY_TYPES = {"create_event", "update_event"}
 ActionType = Literal["create_event", "update_event", "delete_event"]
 EventKind = Literal["meeting", "reminder", "task"]
 
@@ -32,6 +39,10 @@ class ActionValidationError(Exception):
 
 class ActionStateError(Exception):
     """Действие нельзя применить/отклонить в текущем состоянии."""
+
+
+def needs_confirmation(user: User, action_type: str) -> bool:
+    return user.confirm_mode != "auto" or action_type not in AUTO_APPLY_TYPES
 
 
 # --- Разбор аргументов от модели ---------------------------------------------------------

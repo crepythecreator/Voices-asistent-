@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { ProposedAction } from "@/entities/action";
+import { invalidateEvents } from "@/entities/event";
 import type { Message, MessageSource } from "@/entities/message";
 import { getHistory, sendMessage } from "../api/sendMessage";
 
@@ -42,6 +43,8 @@ export function useChat() {
     try {
       const { message: reply } = await sendMessage({ message, source, timezone });
       setMessages((prev) => prev.map((m) => (m.id === placeholderId ? reply : m)));
+      // Авто-режим: изменения уже применены — календарь нужно перечитать
+      if (reply.actions?.some((a) => a.status === "applied")) invalidateEvents();
       return reply;
     } catch {
       setMessages((prev) =>

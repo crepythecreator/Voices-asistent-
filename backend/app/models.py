@@ -20,6 +20,9 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(255))
     avatar_url: Mapped[str | None] = mapped_column(Text)
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
+    # confirm — изменения календаря от ИИ применяются после подтверждения пользователем;
+    # auto — создание и изменение применяются сразу, удаление всё равно ждёт подтверждения
+    confirm_mode: Mapped[str] = mapped_column(String(16), default="confirm", server_default="confirm")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     accounts: Mapped[list["OAuthAccount"]] = relationship(

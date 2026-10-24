@@ -1,3 +1,5 @@
+import { useAuth } from "@/features/auth";
+import { ConfirmModeToggle } from "@/features/confirm-mode";
 import { useAssistant } from "../model/useAssistant";
 import { useAssistantMode } from "../model/useAssistantMode";
 import { ChatView } from "./ChatView";
@@ -11,11 +13,14 @@ import { VoiceView } from "./VoiceView";
 export function AssistantPanel() {
   const assistant = useAssistant();
   const { mode, setMode } = useAssistantMode();
+  const { user, setUser } = useAuth();
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex shrink-0 justify-center pt-3">
+      <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 pt-3">
+        <span />
         <ModeSwitch mode={mode} onChange={setMode} />
+        <div className="flex justify-end">{user && <ConfirmModeToggle user={user} onChange={setUser} />}</div>
       </div>
       {mode === "voice" ? (
         <VoiceView {...assistant} onOpenChat={() => setMode("chat")} />

@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router";
 import { UserAvatar } from "@/entities/user";
 import { useAuth } from "@/features/auth";
 import { PasswordForm } from "@/features/change-password";
+import { ConfirmModeSetting } from "@/features/confirm-mode";
 import { ConnectionsSettings } from "@/features/manage-connections";
 import { routes } from "@/shared/config";
 import { Button } from "@/shared/ui/button";
@@ -34,7 +35,7 @@ function Section({ title, description, children }: { title: string; description?
 }
 
 export function SettingsPage() {
-  const { user, refresh } = useAuth();
+  const { user, refresh, setUser } = useAuth();
   const [params] = useSearchParams();
   const connected = params.get("connected");
   const error = params.get("error");
@@ -78,6 +79,13 @@ export function SettingsPage() {
             description="Подключите Яндекс и Google: через них можно входить, а ассистент будет записывать события в их календари и учитывать вашу занятость."
           >
             <ConnectionsSettings />
+          </Section>
+
+          <Section
+            title="Подтверждение действий"
+            description="Как ассистент записывает изменения в календарь."
+          >
+            <ConfirmModeSetting user={user} onChange={setUser} />
           </Section>
 
           <Section title={user.hasPassword ? "Пароль" : "Вход по паролю"}>

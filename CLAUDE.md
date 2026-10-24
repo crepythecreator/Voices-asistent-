@@ -34,7 +34,9 @@ docker compose up --build
 - **Авторизация** — почта+пароль (argon2, без подтверждения почты и сброса пароля — писем нет; лимит 10 неудачных входов за 15 мин на почту и на IP) и OAuth Яндекс/Google (authorization code + PKCE + state в зашифрованной cookie, один callback `/auth/{provider}/callback` для входа и подключения). Сессия — httpOnly cookie, в БД только sha256. Токены провайдеров хранятся зашифрованными (Fernet от `APP_SECRET_KEY`), обновляются по refresh_token; если ключ сменили — токен считается недоступным.
   - **Вход** через провайдера просит только профиль (Яндекс `login:info login:email`, Google `openid email profile`) и не трогает токены уже подключённого аккаунта (иначе потеряли бы доступ к календарю). **Подключение** из настроек (`/auth/{provider}/connect`) просит календарь: Яндекс `calendar:all`; Google `calendar.app.created` (свой календарь) + `calendar.calendarlist.readonly` + `calendar.events.readonly` (занятость), `access_type=offline`, `prompt=consent`.
   - **Связка по почте**: вход через провайдера с подтверждённой почтой попадает в аккаунт с этой почтой; если почта аккаунта не была подтверждена (регистрация по паролю), пароль сбрасывается и сессии завершаются — защита от захвата чужой почты. Неподтверждённая почта провайдера не связывается. На пользователя — не больше одного аккаунта каждого провайдера; отключить последний способ входа нельзя.
-- **ИИ не меняет календарь сам.** GigaChat получает функции: `list_events` (чтение) и `propose_create/update/delete_event`. «Изменяющие» функции только валидируют аргументы и создают `ProposedAction(status=pending)`; ошибки валидации возвращаются модели. Календарь меняется только в `POST /actions/{id}/confirm` по нажатию пользователя — с повторной проверкой (не просрочено (24 ч), событие существует и принадлежит пользователю, не применено дважды). Это же защищает от prompt injection через названия событий.
+- **ИИ не применяет изменения сам.** GigaChat получает функции: `list_events` (чтение) и `propose_create/update/delete_event`. «Изменяющие» функции валидируют аргументы и создают `ProposedAction`; ошибки валидации возвращаются модели. Применяет действие только `apply_action` — с повторной проверкой (не просрочено (24 ч), событие существует и принадлежит пользователю, не применено дважды). Кто его вызывает — режим пользователя `users.confirm_mode` (настройки или переключатель на экране ассистента, `PATCH /account/settings`):
+  - `confirm` (по умолчанию) — только пользователь: кнопкой или голосом (`POST /actions/{id}/confirm`);
+  - `auto` — создание и изменение применяет сервер сразу внутри `tools.execute` (модель получает `status=applied` и промпт про авто-режим), **удаление всё равно ждёт подтверждения** (`AUTO_APPLY_TYPES`) — оно необратимо, а текст из чужих календарей мог бы подтолкнуть модель удалить лишнее.
 - **Календари** — события ассистента (источник правды — наша БД) выгружаются в отдельный календарь каждого подключённого аккаунта с доступом к календарю и включённым `sync_enabled` (переключатель в настройках); статус по каждому — `event_syncs`, повтор — `POST /calendar/sync`. Занятость читается из остальных календарей всех аккаунтов с доступом (`source=yandex|google`, `readonly`). Отключение аккаунта не удаляет уже выгруженные события у провайдера.
 - **Яндекс Календарь** — публичного REST API нет, работаем по CalDAV (`caldav.yandex.ru`, логин — email, пароль — OAuth-токен).
 - **Google Calendar** — REST API v3 (`calendar/google_calendar.py`): календарь `CALENDAR_NAME` создаётся через `POST /calendars`, события — с `extendedProperties.private.voicesEventId`.
@@ -56,13 +58,14 @@ assistant/  llm.py (интерфейс), gigachat.py (REST-клиент), tools.
             валидация, применение), agent.py (промпт и цикл), router.py (/chat, /actions)
 ```
 
-Таблицы: `users` (email, password_hash, email_verified), `oauth_accounts` (провайдер, токены, доступ к календарю, sync_enabled, calendar_id), `sessions`, `events`, `event_syncs` (копия события у провайдера), `chat_messages`, `proposed_actions`. Миграция 0002 перенесла старые `yandex_tokens`/`calendar_links`; её откат не поддерживается.
+Таблицы: `users` (email, password_hash, email_verified), `oauth_accounts` (провайдер, токены, доступ к календарю, sync_enabled, calendar_id), `sessions`, `events`, `event_syncs` (копия события у провайдера), `chat_messages`, `proposed_actions`. Миграция 0003 — `users.confirm_mode`. Миграция 0002 перенесла старые `yandex_tokens`/`calendar_links`; её откат не поддерживается.
 
 API:
 - `POST /auth/register` `{email, password, name}`, `POST /auth/login` `{email, password}`, `GET /auth/me` → `{id, name, email, avatarUrl, hasPassword}`, `POST /auth/logout`, `GET /auth/providers` → все провайдеры с `configured` (ненастроенный показывается неактивной кнопкой)
 - `GET /auth/{yandex|google}/login?next=` и `/connect?next=` → провайдер; `GET /auth/{provider}/callback` → cookie + редирект на `FRONTEND_URL + next`; ошибка → `/login?error=` (вход) или `/settings?error=` (подключение): `access_denied`, `invalid_state`, `already_linked`, `other_account_connected`, `provider_error`; успех подключения → `/settings?connected=<provider>`
 - `GET /account/connections`, `PATCH /account/connections/{provider}` `{syncEnabled}`, `DELETE /account/connections/{provider}`, `POST /account/password` `{currentPassword?, newPassword}` (завершает остальные сессии)
 - `POST /chat` `{message, source, timezone}` → `{reply, message: {id, role, text, createdAt, actions: [...]}}`; `GET /chat/history`
+- `PATCH /account/settings` `{confirmMode: confirm|auto}` → пользователь
 - `POST /actions/{id}/confirm`, `POST /actions/{id}/reject` → `{id, type, summary, status, error, eventId, expiresAt}`
 - `GET /events?from&to` → наши события (`syncStatus`: synced/pending/error) + занятость из Яндекса и Google; `POST /calendar/sync`
 - `POST /stt?sample_rate=16000&lang=ru-RU`, тело — PCM s16le моно → `{text}`
@@ -83,7 +86,7 @@ src/
               VoiceView, ChatView, Composer, MessageList), calendar-panel (+ model/useMonthEvents)
   features/   send-message (useChat, /chat, история), confirm-action (Подтвердить/Отклонить),
               voice-input (распознавание речи), voice-conversation (режим беседы: listenOnce, Speaker, да/нет/стоп), auth (AuthProvider, LoginForm, RegisterForm, OAuthButtons, UserMenu),
-              manage-connections (карточки Яндекс/Google в настройках), change-password, toggle-theme
+              manage-connections (карточки Яндекс/Google в настройках), change-password, confirm-mode (ConfirmModeSetting, ConfirmModeToggle), toggle-theme
   entities/   connection, message, action (ProposedAction, ActionCard), event (getEvents, EventCard, invalidateEvents), user
   shared/     ui (shadcn + input, label, switch, form-error, provider-icon), api (fetch-клиент, ApiError, обработчик 401), config (USE_MOCKS, STT_ENGINE, routes, MIN_PASSWORD_LENGTH), lib (cn, errorMessage, форматирование)
 ```

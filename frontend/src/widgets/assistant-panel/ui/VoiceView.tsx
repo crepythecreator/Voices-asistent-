@@ -81,7 +81,7 @@ export function VoiceView({ chat, conversation, onOpenChat }: Props) {
               </p>
             )}
             {state !== "listening" &&
-              pending.map((a) => (
+              (reply?.pending ? [] : (reply?.actions ?? [])).map((a) => (
                 <ActionCard key={a.id} action={a} controls={<ActionDecision action={a} onResolved={chat.updateAction} />} />
               ))}
             {pending.length > 0 && active && (

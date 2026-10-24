@@ -32,6 +32,7 @@ class UserOut(BaseModel):
     email: str | None
     avatarUrl: str | None
     hasPassword: bool
+    confirmMode: Literal["confirm", "auto"]
 
 
 def user_out(user: User) -> UserOut:
@@ -41,6 +42,7 @@ def user_out(user: User) -> UserOut:
         email=user.email,
         avatarUrl=user.avatar_url,
         hasPassword=bool(user.password_hash),
+        confirmMode="auto" if user.confirm_mode == "auto" else "confirm",
     )
 
 

@@ -1,11 +1,14 @@
 """Настройки аккаунта: подключённые Яндекс/Google с календарём и пароль."""
 
+from typing import Literal
+
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..auth.passwords import MIN_PASSWORD_LENGTH, hash_password, verify_password
 from ..auth.providers import configured_providers, get_provider
+from ..auth.router import UserOut, user_out
 from ..calendar.service import invalidate_busy_cache, setup_calendars_in_background
 from ..db import get_db
 from ..models import OAuthAccount, User
@@ -90,6 +93,18 @@ def disconnect(provider_name: str, user: User = Depends(current_user), db: Sessi
     user.accounts.remove(account)
     db.commit()
     invalidate_busy_cache(user.id)
+
+
+class SettingsPatch(BaseModel):
+    confirmMode: Literal["confirm", "auto"]
+
+
+@router.patch("/settings", response_model=UserOut)
+def update_settings(body: SettingsPatch, user: User = Depends(current_user), db: Session = Depends(get_db)) -> UserOut:
+    """Режим подтверждения: confirm — всё подтверждает пользователь; auto — создание и изменение сразу."""
+    user.confirm_mode = body.confirmMode
+    db.commit()
+    return user_out(user)
 
 
 class PasswordIn(BaseModel):
