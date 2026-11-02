@@ -1,7 +1,7 @@
 # Прод: готовые образы из GitHub Container Registry (собираются в .github/workflows/docker.yml).
 #   docker compose -f compose.prod.yaml pull && docker compose -f compose.prod.yaml up -d
-# Нужен .env рядом (см. .env.example) с POSTGRES_PASSWORD, APP_SECRET_KEY, FRONTEND_URL,
-# YANDEX_REDIRECT_URI=<FRONTEND_URL>/api/auth/yandex/callback, COOKIE_SECURE=true (если HTTPS) и ключами.
+# Нужен .env рядом — скопируйте .env.prod.example (POSTGRES_PASSWORD, APP_SECRET_KEY, FRONTEND_URL, redirect URI и ключи).
+# HTTPS: сертификат Let's Encrypt для DOMAIN из /etc/letsencrypt хоста; порт 80 перенаправляет на 443 (см. README).
 services:
   db:
     image: postgres:18
@@ -30,8 +30,13 @@ services:
     restart: unless-stopped
     environment:
       API_UPSTREAM: http://backend:8000
+      DOMAIN: ${DOMAIN:?задайте DOMAIN в .env}
     ports:
       - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ${LETSENCRYPT_DIR:-/etc/letsencrypt}:/etc/letsencrypt:ro
+      - ${ACME_WEBROOT:-/var/www/certbot}:/var/www/certbot:ro
     depends_on:
       backend:
         condition: service_healthy

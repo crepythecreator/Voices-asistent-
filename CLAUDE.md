@@ -24,7 +24,7 @@ docker compose up --build
 ## Docker и CI
 
 - `compose.yaml` — разработка: сборка из исходников, hot reload (бэкенд `--reload` задан в compose, фронт — стадия `dev` Dockerfile).
-- `compose.prod.yaml` — прод из готовых образов `ghcr.io/crepythecreator/voices-assistant-{backend,frontend}:${IMAGE_TAG:-latest}`; нужен `.env` с `POSTGRES_PASSWORD` (без спецсимволов — идёт в URL).
+- `compose.prod.yaml` — прод из готовых образов `ghcr.io/crepythecreator/voices-assistant-{backend,frontend}:${IMAGE_TAG:-latest}`; нужен `.env` (шаблон — `.env.prod.example`: `POSTGRES_PASSWORD` без спецсимволов — идёт в URL, `DOMAIN`, `HTTP_PORT`/`HTTPS_PORT`) и сертификат Let's Encrypt для `DOMAIN` (`/etc/letsencrypt` хоста монтируется в nginx, проверка домена — webroot `/var/www/certbot`). nginx: порт 80 → 301 на HTTPS (кроме `/healthz` для healthcheck), TLS на 443, в бэкенд уходит `X-Forwarded-Proto: https`.
 - `backend/Dockerfile` — прод-образ: не-root, миграции при старте, healthcheck `/health`, без `--reload`.
 - `frontend/Dockerfile` — стадии `deps` → `dev` (Vite) / `build` → `prod` (nginx: статика + прокси `/api/` → `API_UPSTREAM`, `nginx.conf.template`). `VITE_*` вшиваются при сборке (build args).
 - `.github/workflows/docker.yml` — тесты бэкенда, линтер и сборка фронта, затем образы linux/amd64+arm64 в GHCR: push в `main` → `latest` + `sha-xxxx`, тег `v1.2.3` → `1.2.3`, `1.2`; в PR — только сборка. `VITE_STT_ENGINE` для образа — переменная репозитория (Settings → Variables).
